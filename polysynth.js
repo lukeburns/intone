@@ -300,16 +300,94 @@ export class PolySynth extends BaseSynth {
       this.currentReferenceVoice = activeVoices[randomIndex];
       console.log(`Selected new random reference: ${this.justIntervals.getMidiNoteName(this.currentReferenceVoice.midiNote)}`);
       return this.currentReferenceVoice;
+    } else if (this.referenceMode === 'lattice') {
+      // If we have a current reference and it's still active, keep it (sticky)
+      if (this.currentReferenceVoice && this.currentReferenceVoice.isActive) {
+        return this.currentReferenceVoice;
+      }
+      
+      // Otherwise, find the harmonic center
+      const harmonicCenter = this.findHarmonicCenter();
+      this.currentReferenceVoice = harmonicCenter;
+      if (harmonicCenter) {
+        console.log(`Selected harmonic center: ${this.justIntervals.getMidiNoteName(harmonicCenter.midiNote)}`);
+      }
+      return harmonicCenter;
     }
     
     return this.getLowestActiveVoice(); // Fallback
   }
 
   /**
-   * Set reference mode: 'bass' (lowest note) or 'random' (random sticky note)
+   * Find the harmonic center - the note with strongest harmonic relationships
+   * to all other active notes (Tonnetz-inspired algorithm)
+   */
+  findHarmonicCenter() {
+    const activeVoices = this.voices.filter(v => v.isActive);
+    if (activeVoices.length === 0) return null;
+    if (activeVoices.length === 1) return activeVoices[0];
+    
+    let bestVoice = null;
+    let bestScore = -Infinity;
+    
+    // For each voice, calculate its harmonic "consonance score"
+    for (const candidate of activeVoices) {
+      let score = 0;
+      
+      // Score based on harmonic relationships to all other notes
+      for (const other of activeVoices) {
+        if (candidate === other) continue;
+        
+        // Calculate interval from candidate to other
+        const interval = other.midiNote - candidate.midiNote;
+        
+        // Add consonance score for this interval
+        score += this.getConsonanceScore(interval);
+      }
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestVoice = candidate;
+      }
+    }
+    
+    return bestVoice;
+  }
+
+  /**
+   * Get consonance score for an interval
+   * Higher scores = more consonant = better reference candidates
+   * Based on simple just intonation ratios
+   */
+  getConsonanceScore(interval) {
+    // Normalize to octave (0-11)
+    const mod12 = ((interval % 12) + 12) % 12;
+    
+    // Score based on consonance hierarchy
+    // Perfect consonances score highest, then imperfect, then dissonances
+    const scores = {
+      0: 10,   // Unison/Octave (1:1, 2:1) - perfect
+      7: 9,    // Perfect fifth (3:2) - perfect
+      5: 8,    // Perfect fourth (4:3) - perfect
+      4: 7,    // Major third (5:4) - imperfect consonance
+      3: 7,    // Minor third (6:5) - imperfect consonance
+      9: 6,    // Major sixth (5:3) - imperfect consonance
+      8: 6,    // Minor sixth (8:5) - imperfect consonance
+      2: 3,    // Major second (9:8) - mild dissonance
+      10: 3,   // Minor seventh (9:5) - mild dissonance
+      11: 2,   // Major seventh (15:8) - dissonance
+      1: 1,    // Minor second (16:15) - dissonance
+      6: 1     // Tritone (45:32 or 64:45) - dissonance
+    };
+    
+    return scores[mod12] || 0;
+  }
+
+  /**
+   * Set reference mode: 'bass', 'random', or 'lattice'
    */
   setReferenceMode(mode) {
-    if (mode !== 'bass' && mode !== 'random') {
+    if (mode !== 'bass' && mode !== 'random' && mode !== 'lattice') {
       console.warn(`Invalid reference mode: ${mode}. Using 'bass'.`);
       mode = 'bass';
     }

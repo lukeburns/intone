@@ -437,7 +437,12 @@ class PolyApp {
     const state = this.synth.getState();
     if (state.referenceNote !== null) {
       const refNoteName = this.synth.justIntervals.getMidiNoteName(state.referenceNote);
-      const modeLabel = state.referenceMode === 'random' ? ' (random)' : ' (bass)';
+      const modeLabels = {
+        bass: ' (bass)',
+        random: ' (random)',
+        lattice: ' (lattice)'
+      };
+      const modeLabel = modeLabels[state.referenceMode] || '';
       this.elements.bassNote.textContent = refNoteName + modeLabel;
       this.elements.bassFreq.textContent = `${state.referenceFrequency.toFixed(2)} Hz`;
     } else {
@@ -481,7 +486,12 @@ class PolyApp {
     // Update reference note info
     if (state.referenceNote !== null) {
       const refNoteName = this.synth.justIntervals.getMidiNoteName(state.referenceNote);
-      const modeLabel = state.referenceMode === 'random' ? ' (random)' : ' (bass)';
+      const modeLabels = {
+        bass: ' (bass)',
+        random: ' (random)',
+        lattice: ' (lattice)'
+      };
+      const modeLabel = modeLabels[state.referenceMode] || '';
       this.elements.bassNote.textContent = refNoteName + modeLabel;
       this.elements.bassFreq.textContent = `${state.referenceFrequency.toFixed(2)} Hz`;
     } else {

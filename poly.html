@@ -486,6 +486,7 @@
         <select id="referenceMode" class="control-input">
           <option value="bass">Bass - Lowest active note</option>
           <option value="random">Random - Random sticky note</option>
+          <option value="lattice">Lattice - Harmonic center (Tonnetz)</option>
         </select>
       </div>
 
@@ -580,6 +581,7 @@
       <ul style="margin: 10px 0 0 20px; line-height: 1.6;">
         <li><strong>Bass Mode:</strong> The lowest note becomes the reference. All other notes tune to it. When you release the bass, the new lowest note becomes the reference.</li>
         <li><strong>Random Mode:</strong> A random note is chosen as the reference and "sticks" until released. Other notes tune to this reference. When the reference is released, a new random note is chosen from the remaining voices.</li>
+        <li><strong>Lattice Mode:</strong> The "harmonic center" becomes the reference - the note with the strongest consonant relationships to all other notes (inspired by the Tonnetz). This finds the "root" of the chord regardless of pitch order. Great for inversions!</li>
       </ul>
       <p style="margin-top: 10px;">All intervals are tuned as simple frequency ratios for harmonically pure chords!</p>
     </div>
