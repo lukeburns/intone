@@ -4,10 +4,11 @@
  */
 
 export class MIDIHandler {
-  constructor(onNoteOn, onNoteOff, onSustainPedal) {
+  constructor(onNoteOn, onNoteOff, onSustainPedal, onPitchBend) {
     this.onNoteOn = onNoteOn;
     this.onNoteOff = onNoteOff;
     this.onSustainPedal = onSustainPedal || (() => {}); // Optional callback
+    this.onPitchBend = onPitchBend || (() => {}); // Optional callback
     this.midiAccess = null;
     this.connectedDevices = [];
   }
@@ -104,6 +105,10 @@ export class MIDIHandler {
       case 0xB: // Control Change
         this.handleControlChange(data1, data2);
         break;
+        
+      case 0xE: // Pitch Bend
+        this.handlePitchBend(data1, data2);
+        break;
     }
   }
 
@@ -123,6 +128,21 @@ export class MIDIHandler {
       // case 10: // Pan
       // etc.
     }
+  }
+
+  /**
+   * Handle MIDI Pitch Bend messages
+   * Pitch bend is sent as two 7-bit values (LSB, MSB)
+   * Range: 0-16383, center is 8192
+   */
+  handlePitchBend(lsb, msb) {
+    // Combine the two 7-bit values into a 14-bit value
+    const bendValue = (msb << 7) | lsb;
+    
+    // Normalize to -1.0 to +1.0 range (center at 8192)
+    const normalizedBend = (bendValue - 8192) / 8192;
+    
+    this.onPitchBend(normalizedBend);
   }
 
   /**

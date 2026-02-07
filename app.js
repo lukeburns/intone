@@ -215,7 +215,8 @@ class App {
       this.midiHandler = new MIDIHandler(
         (note, velocity) => this.handleNoteOn(note, velocity),
         (note) => this.handleNoteOff(note),
-        (pedalDown) => this.handleSustainPedal(pedalDown)
+        (pedalDown) => this.handleSustainPedal(pedalDown),
+        (amount) => this.handlePitchBend(amount)
       );
       
       await this.midiHandler.init();
@@ -309,6 +310,11 @@ class App {
         this.elements.sustainPedal.style.color = '';
       }
     }
+  }
+
+  handlePitchBend(amount) {
+    // Monosynth doesn't use pitch bend in the same way
+    // Could be added later if desired
   }
 
   updateUI(noteInfo) {

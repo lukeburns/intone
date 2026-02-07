@@ -36,6 +36,7 @@ export class NoteVisualizer {
     
     // Visual parameters
     this.keyboardHeight = 60; // Height of keyboard at bottom
+    this.tunerHeight = 50; // Height of tuner display below keyboard
     this.plotHeight = 0; // Calculated in setupCanvas
     this.maxDeviation = 25; // max horizontal deviation in cents (per side)
     
@@ -54,13 +55,13 @@ export class NoteVisualizer {
     const container = this.canvas.parentElement;
     this.canvas.width = container.clientWidth;
     this.canvas.height = 400;
-    this.plotHeight = this.canvas.height - this.keyboardHeight;
+    this.plotHeight = this.canvas.height - this.keyboardHeight - this.tunerHeight;
     
     // Handle resize
     window.addEventListener('resize', () => {
       this.canvas.width = container.clientWidth;
       this.canvas.height = 400;
-      this.plotHeight = this.canvas.height - this.keyboardHeight;
+      this.plotHeight = this.canvas.height - this.keyboardHeight - this.tunerHeight;
     });
   }
 
@@ -89,7 +90,7 @@ export class NoteVisualizer {
     const keyWidth = this.canvas.width / this.noteRange;
     const keyIndex = midiNote - this.minMidiNote;
     const x = keyIndex * keyWidth;
-    const y = this.canvas.height - this.keyboardHeight;
+    const y = this.plotHeight; // Keys start after plot area
     
     return {
       x,
@@ -310,8 +311,11 @@ export class NoteVisualizer {
     // Draw time grid
     this.drawTimeGrid(now);
     
-    // Draw keyboard at bottom
+    // Draw keyboard
     this.drawKeyboard();
+    
+    // Draw tuner display below keyboard (always visible)
+    this.drawTunerDisplay();
     
     // Draw note paths
     for (const [noteId, noteInfo] of this.noteData) {
@@ -387,6 +391,131 @@ export class NoteVisualizer {
     this.ctx.font = '11px monospace';
     this.ctx.textAlign = 'center';
     this.ctx.fillText(`Time Window: ${this.timeWindow}s | Tuning Deviation: ±${this.maxDeviation}¢`, this.canvas.width / 2, 15);
+  }
+
+  /**
+   * Draw guitar-tuner-style display showing average cents deviation
+   * Always visible - shows active notes average, or reference freq when idle
+   */
+  drawTunerDisplay() {
+    // Calculate display value
+    let displayCents = 0;
+    let label = '';
+    
+    // Calculate average cents deviation of all active notes
+    const activeNotesArray = Array.from(this.noteData.values()).filter(n => n.isActive);
+    
+    if (activeNotesArray.length > 0) {
+      // Active notes - show average
+      let totalCents = 0;
+      let count = 0;
+      
+      for (const noteInfo of activeNotesArray) {
+        if (noteInfo.dataPoints.length > 0) {
+          const lastPoint = noteInfo.dataPoints[noteInfo.dataPoints.length - 1];
+          totalCents += lastPoint.cents;
+          count++;
+        }
+      }
+      
+      if (count > 0) {
+        displayCents = totalCents / count;
+        label = `Average Comma (${count} note${count > 1 ? 's' : ''})`;
+      }
+    } else if (this.referenceFrequency) {
+      // No active notes, but we have a reference - show its deviation
+      const equalTempFreq = this.justIntervals.midiToFrequency(this.referenceFrequency.midiNote);
+      displayCents = this.calculateCentsDeviation(this.referenceFrequency.frequency, equalTempFreq);
+      label = 'Reference Frequency';
+    } else {
+      // No reference yet - show centered
+      displayCents = 0;
+      label = 'Awaiting First Note';
+    }
+    
+    // Draw tuner display below keyboard
+    const centerX = this.canvas.width / 2;
+    const y = this.plotHeight + this.keyboardHeight; // Below keyboard
+    const width = Math.min(400, this.canvas.width - 40);
+    const height = this.tunerHeight - 15;
+    const tickRange = 50; // ±50 cents display range
+    
+    // Background
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.fillRect(centerX - width/2, y, width, height);
+    
+    // Border
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    this.ctx.lineWidth = 1;
+    this.ctx.strokeRect(centerX - width/2, y, width, height);
+    
+    // Center line
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    this.ctx.lineWidth = 2;
+    this.ctx.beginPath();
+    this.ctx.moveTo(centerX, y + 5);
+    this.ctx.lineTo(centerX, y + height - 5);
+    this.ctx.stroke();
+    
+    // Tick marks
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    this.ctx.lineWidth = 1;
+    this.ctx.font = '8px monospace';
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    this.ctx.textAlign = 'center';
+    
+    for (let cents = -tickRange; cents <= tickRange; cents += 10) {
+      if (cents === 0) continue;
+      const x = centerX + (cents / tickRange) * (width / 2 - 10);
+      const tickHeight = (cents % 20 === 0) ? height * 0.3 : height * 0.15;
+      
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, y + height - tickHeight - 5);
+      this.ctx.lineTo(x, y + height - 5);
+      this.ctx.stroke();
+      
+      // Label major ticks
+      if (cents % 20 === 0) {
+        this.ctx.fillText(`${cents > 0 ? '+' : ''}${cents}`, x, y + height - tickHeight - 10);
+      }
+    }
+    
+    // Needle position
+    const needleCents = Math.max(-tickRange, Math.min(tickRange, displayCents));
+    const needleX = centerX + (needleCents / tickRange) * (width / 2 - 10);
+    
+    // Needle
+    this.ctx.fillStyle = this.getColorFromCents(displayCents);
+    this.ctx.beginPath();
+    this.ctx.moveTo(needleX, y + 5);
+    this.ctx.lineTo(needleX - 6, y + 15);
+    this.ctx.lineTo(needleX + 6, y + 15);
+    this.ctx.closePath();
+    this.ctx.fill();
+    
+    // Needle line
+    this.ctx.strokeStyle = this.getColorFromCents(displayCents);
+    this.ctx.lineWidth = 3;
+    this.ctx.beginPath();
+    this.ctx.moveTo(needleX, y + 15);
+    this.ctx.lineTo(needleX, y + height - 5);
+    this.ctx.stroke();
+    
+    // Display cents value
+    this.ctx.fillStyle = this.getColorFromCents(displayCents);
+    this.ctx.font = 'bold 14px monospace';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(
+      `${displayCents > 0 ? '+' : ''}${displayCents.toFixed(1)}¢`,
+      centerX,
+      y + height / 2 - 5
+    );
+    
+    // Label
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    this.ctx.font = '9px monospace';
+    this.ctx.fillText(label, centerX, y + height - 12);
   }
 
   /**

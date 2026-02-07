@@ -227,7 +227,8 @@ class PolyApp {
       this.midiHandler = new MIDIHandler(
         (note, velocity) => this.handleNoteOn(note, velocity),
         (note) => this.handleNoteOff(note),
-        (pedalDown) => this.handleSustainPedal(pedalDown)
+        (pedalDown) => this.handleSustainPedal(pedalDown),
+        (amount) => this.handlePitchBend(amount)
       );
       
       await this.midiHandler.init();
@@ -277,6 +278,18 @@ class PolyApp {
         const state = this.synth.getState();
         const isReferenceNote = state.bassNote === midiNote;
         this.visualizer.noteOn(midiNote, noteInfo.frequency, isReferenceNote);
+        
+        // Update reference frequency to match current bass
+        if (state.bassNote !== null) {
+          const bassVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.bassNote);
+          if (bassVoice) {
+            this.visualizer.referenceFrequency = { 
+              frequency: bassVoice.frequency,
+              midiNote: state.bassNote,
+              timestamp: performance.now()
+            };
+          }
+        }
       }
     }
   }
@@ -373,6 +386,25 @@ class PolyApp {
     }
   }
 
+  handlePitchBend(amount) {
+    if (this.synth) {
+      this.synth.applyPitchBend(amount);
+      
+      // Update visualizer reference frequency with bent bass
+      if (this.visualizer) {
+        const bentFreq = this.synth.getBassFrequencyWithBend();
+        if (bentFreq) {
+          const state = this.synth.getState();
+          this.visualizer.referenceFrequency = {
+            frequency: bentFreq,
+            midiNote: state.bassNote,
+            timestamp: performance.now()
+          };
+        }
+      }
+    }
+  }
+
   updateUI(noteInfo) {
     // Update voice count
     this.elements.voiceCount.textContent = noteInfo.activeVoices;
@@ -405,8 +437,13 @@ class PolyApp {
         `Ratio ${info.ratio} from bass note ${info.referenceNote} (${info.referenceFreq.toFixed(2)} Hz)`;
     } else {
       this.elements.intervalName.textContent = `${noteInfo.noteName} (Bass/First Note)`;
-      this.elements.intervalDetails.textContent = 
-        `${noteInfo.frequency.toFixed(2)} Hz — Equal Temperament (becomes bass reference)`;
+      if (noteInfo.usedStoredReference) {
+        this.elements.intervalDetails.textContent = 
+          `${noteInfo.frequency.toFixed(2)} Hz — From stored reference (detuned bass)`;
+      } else {
+        this.elements.intervalDetails.textContent = 
+          `${noteInfo.frequency.toFixed(2)} Hz — Equal Temperament (becomes bass reference)`;
+      }
     }
   }
 
