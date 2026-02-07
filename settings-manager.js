@@ -82,7 +82,7 @@ export class SettingsManager {
       filterQ: 5,
       filterEnv: 3000,
       volume: 40,
-      stereoSpread: 100,
+      stereoSpread: 69,
       spreadMode: 'harmonic'
     };
   }

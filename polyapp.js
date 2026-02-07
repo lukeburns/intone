@@ -320,8 +320,16 @@ class PolyApp {
       // Mark this key as being held down
       this.synth.keysHeldDown.add(midiNote);
       
+      // Get the reference BEFORE playing the note
+      const stateBefore = this.synth.getState();
+      const oldReferenceNote = stateBefore.referenceNote;
+      
       const noteInfo = this.synth.noteOn(midiNote, velocity);
       this.updateUI(noteInfo);
+      
+      // Get the reference AFTER playing the note
+      const stateAfter = this.synth.getState();
+      const newReferenceNote = stateAfter.referenceNote;
       
       // Update visualizer
       if (this.visualizer) {
@@ -331,19 +339,23 @@ class PolyApp {
         }
         
         // Check if this note is the reference note
-        const state = this.synth.getState();
-        const isReferenceNote = state.referenceNote === midiNote;
+        const isReferenceNote = newReferenceNote === midiNote;
         this.visualizer.noteOn(midiNote, noteInfo.frequency, isReferenceNote);
         
         // Update reference frequency to match current reference
-        if (state.referenceNote !== null) {
-          const refVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.referenceNote);
+        if (newReferenceNote !== null) {
+          const refVoice = this.synth.voices.find(v => v.isActive && v.midiNote === newReferenceNote);
           if (refVoice) {
             this.visualizer.referenceFrequency = { 
               frequency: refVoice.frequency,
-              midiNote: state.referenceNote,
+              midiNote: newReferenceNote,
               timestamp: performance.now()
             };
+            
+            // If the reference changed, update all existing notes' ratios
+            if (oldReferenceNote !== null && oldReferenceNote !== newReferenceNote) {
+              this.visualizer.updateAllRatiosForNewReference();
+            }
           }
         }
       }
