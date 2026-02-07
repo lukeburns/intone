@@ -348,14 +348,7 @@ class PolyApp {
         
         // If notes were retuned (reference changed), update visualizer
         if (retunedNotes && Array.isArray(retunedNotes) && this.visualizer) {
-          const isSmooth = this.synth.retuneMode === 'smooth';
-          const glideTime = this.synth.retuneSpeed || 0.2;
-          
-          retunedNotes.forEach(({ midiNote: retunedNote, newFrequency }) => {
-            this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
-          });
-          
-          // Update reference note if it changed
+          // Update reference note FIRST so ratio calculations are correct
           const state = this.synth.getState();
           if (state.referenceNote !== null) {
             const refVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.referenceNote);
@@ -365,8 +358,19 @@ class PolyApp {
                 midiNote: state.referenceNote,
                 timestamp: performance.now()
               };
+              
+              // Update all active notes' ratio displays for the new reference
+              this.visualizer.updateAllRatiosForNewReference();
             }
           }
+          
+          // Then update the retuned notes with the new reference
+          const isSmooth = this.synth.retuneMode === 'smooth';
+          const glideTime = this.synth.retuneSpeed || 0.2;
+          
+          retunedNotes.forEach(({ midiNote: retunedNote, newFrequency }) => {
+            this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
+          });
         }
         
         this.updateUIAfterNoteOff();
@@ -401,14 +405,7 @@ class PolyApp {
         
         // If notes were retuned (reference changed), update visualizer
         if (retunedNotes && Array.isArray(retunedNotes) && this.visualizer) {
-          const isSmooth = this.synth.retuneMode === 'smooth';
-          const glideTime = this.synth.retuneSpeed || 0.2;
-          
-          retunedNotes.forEach(({ midiNote: retunedNote, newFrequency }) => {
-            this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
-          });
-          
-          // Update reference note if it changed
+          // Update reference note FIRST so ratio calculations are correct
           const state = this.synth.getState();
           if (state.referenceNote !== null) {
             const refVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.referenceNote);
@@ -418,8 +415,19 @@ class PolyApp {
                 midiNote: state.referenceNote,
                 timestamp: performance.now()
               };
+              
+              // Update all active notes' ratio displays for the new reference
+              this.visualizer.updateAllRatiosForNewReference();
             }
           }
+          
+          // Then update the retuned notes with the new reference
+          const isSmooth = this.synth.retuneMode === 'smooth';
+          const glideTime = this.synth.retuneSpeed || 0.2;
+          
+          retunedNotes.forEach(({ midiNote: retunedNote, newFrequency }) => {
+            this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
+          });
         }
         
         this.updateUIAfterNoteOff();
@@ -443,6 +451,8 @@ class PolyApp {
             midiNote: state.referenceNote,
             timestamp: performance.now()
           };
+          // Recalculate comma drift with the new bent frequency
+          this.visualizer.updateAllRatiosForNewReference();
         }
       }
     }
@@ -633,11 +643,7 @@ class PolyApp {
     if (this.visualizer) {
       // Give the browser a moment to update the layout
       setTimeout(() => {
-        if (this.visualizer.canvas) {
-          this.visualizer.canvas.width = this.visualizer.canvas.offsetWidth * window.devicePixelRatio;
-          this.visualizer.canvas.height = this.visualizer.canvas.offsetHeight * window.devicePixelRatio;
-          this.visualizer.draw();
-        }
+        this.visualizer.updateCanvasSize();
       }, 100);
     }
   }

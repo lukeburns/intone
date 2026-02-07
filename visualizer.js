@@ -1,7 +1,7 @@
 import { JustIntervals } from './just-intervals.js';
 
 /**
- * NoteVisualizer - Time-series plot of note tuning
+ * NoteVisualizer - Time-series plot of just intonation ratios
  * 
  * Conceptual Model:
  * - This is a literal 2D plot with time on the Y-axis
@@ -12,7 +12,8 @@ import { JustIntervals } from './just-intervals.js';
  * Axes:
  * - X-axis: MIDI note number (keyboard position)
  * - Y-axis: Time (present at bottom, past scrolling upward)
- * - Horizontal deviation: Cents from equal temperament
+ * - Horizontal position: Just intonation ratio relative to reference note
+ *   (e.g., 5:4 for major third, 3:2 for perfect fifth)
  */
 
 export class NoteVisualizer {
@@ -27,18 +28,22 @@ export class NoteVisualizer {
     
     // All note data (stored as absolute timestamps)
     // Using unique IDs to allow multiple instances of the same MIDI note
-    this.noteData = new Map(); // noteId -> { midiNote, dataPoints, isActive, equalTempFreq }
+    this.noteData = new Map(); // noteId -> { midiNote, dataPoints, isActive, referenceFreq, ratio }
     this.activeNotesByMidi = new Map(); // midiNote -> Set of active noteIds
     this.nextNoteId = 0;
     
     // Reference frequency for tuning (not tied to a specific key)
     this.referenceFrequency = null; // { frequency, midiNote, timestamp }
     
+    // Track reference drift over time
+    this.initialReferenceFrequency = null; // Store the very first reference
+    this.referenceDriftCents = 0; // Total accumulated drift from initial reference
+    
     // Visual parameters
     this.keyboardHeight = 60; // Height of keyboard at bottom
     this.tunerHeight = 50; // Height of tuner display below keyboard
     this.plotHeight = 0; // Calculated in setupCanvas
-    this.maxDeviation = 25; // max horizontal deviation in cents (per side)
+    this.maxRatioCents = 25; // max horizontal deviation in cents from perfect ratio (per side)
     
     // MIDI note range to display
     this.minMidiNote = 36; // C2
@@ -51,25 +56,73 @@ export class NoteVisualizer {
   }
 
   setupCanvas() {
-    // Set canvas size
-    const container = this.canvas.parentElement;
-    this.canvas.width = container.clientWidth;
-    this.canvas.height = 400;
-    this.plotHeight = this.canvas.height - this.keyboardHeight - this.tunerHeight;
+    // Set canvas size based on container
+    this.updateCanvasSize();
     
-    // Handle resize
-    window.addEventListener('resize', () => {
+    // Handle resize and fullscreen changes
+    window.addEventListener('resize', () => this.updateCanvasSize());
+    
+    // Listen for fullscreen changes to update canvas size
+    document.addEventListener('fullscreenchange', () => this.updateCanvasSize());
+    document.addEventListener('webkitfullscreenchange', () => this.updateCanvasSize());
+    document.addEventListener('mozfullscreenchange', () => this.updateCanvasSize());
+  }
+
+  updateCanvasSize() {
+    const container = this.canvas.parentElement;
+    const isFullscreen = !!(document.fullscreenElement || 
+                            document.webkitFullscreenElement || 
+                            document.mozFullScreenElement);
+    
+    // In fullscreen, use the actual container dimensions
+    // Otherwise, use a fixed width with reasonable height
+    if (isFullscreen) {
       this.canvas.width = container.clientWidth;
-      this.canvas.height = 400;
-      this.plotHeight = this.canvas.height - this.keyboardHeight - this.tunerHeight;
-    });
+      this.canvas.height = container.clientHeight;
+    } else {
+      this.canvas.width = container.clientWidth;
+      this.canvas.height = Math.min(600, Math.max(400, container.clientHeight));
+    }
+    
+    this.plotHeight = this.canvas.height - this.keyboardHeight - this.tunerHeight;
   }
 
   /**
-   * Calculate cents deviation from equal temperament
+   * Calculate the interval and ratio from reference note
+   * Returns { interval, ratio, ratioString, intervalName, centsFromPureRatio }
    */
-  calculateCentsDeviation(actualFreq, equalTempFreq) {
-    return 1200 * Math.log2(actualFreq / equalTempFreq);
+  calculateRatioFromReference(noteFreq, noteMidi, refFreq, refMidi) {
+    if (!refFreq || !refMidi) {
+      // No reference, treat note as its own reference (1:1)
+      return {
+        interval: 0,
+        ratio: 1.0,
+        ratioString: '1:1',
+        intervalName: 'Reference',
+        centsFromPureRatio: 0
+      };
+    }
+    
+    const interval = noteMidi - refMidi;
+    const ratioString = this.justIntervals.getRatioString(interval);
+    const intervalName = this.justIntervals.getIntervalName(interval);
+    
+    // Calculate the ideal just frequency for this interval
+    const idealFreq = this.justIntervals.getJustFrequency(refFreq, refMidi, noteMidi);
+    
+    // Calculate how far the actual frequency is from the ideal ratio
+    // (This should be nearly 0 for our synth, but captures micro-variations)
+    const centsFromPureRatio = 1200 * Math.log2(noteFreq / idealFreq);
+    
+    const ratio = noteFreq / refFreq;
+    
+    return {
+      interval,
+      ratio,
+      ratioString,
+      intervalName,
+      centsFromPureRatio
+    };
   }
 
   /**
@@ -103,35 +156,35 @@ export class NoteVisualizer {
   }
 
   /**
-   * Get X offset from cents deviation (relative to key center)
+   * Get X offset from cents deviation from perfect ratio (relative to key center)
    */
   getXOffsetFromCents(cents, keyBounds) {
     // Map cents to pixels within half the key width
     const maxPixelOffset = keyBounds.pathWidth / 2;
-    const pixelsPerCent = maxPixelOffset / this.maxDeviation;
+    const pixelsPerCent = maxPixelOffset / this.maxRatioCents;
     return cents * pixelsPerCent;
   }
 
   /**
-   * Get color based on cents deviation
-   * Green (flat) → Blue (in tune) → Red (sharp)
+   * Get color based on cents deviation from perfect ratio
+   * Green (flat) → Blue (perfect ratio) → Red (sharp)
    */
   getColorFromCents(cents) {
     // Normalize cents to 0-1 range
-    const normalized = (cents + this.maxDeviation) / (2 * this.maxDeviation);
+    const normalized = (cents + this.maxRatioCents) / (2 * this.maxRatioCents);
     const clamped = Math.max(0, Math.min(1, normalized));
     
     // Create gradient: Green → Blue → Red
     let r, g, b;
     
     if (clamped < 0.5) {
-      // Green to Blue (flat to in-tune)
+      // Green to Blue (flat to perfect)
       const t = clamped * 2; // 0 to 1
       r = Math.round(0 * (1 - t) + 70 * t);
       g = Math.round(200 * (1 - t) + 130 * t);
       b = Math.round(100 * (1 - t) + 255 * t);
     } else {
-      // Blue to Red (in-tune to sharp)
+      // Blue to Red (perfect to sharp)
       const t = (clamped - 0.5) * 2; // 0 to 1
       r = Math.round(70 * (1 - t) + 255 * t);
       g = Math.round(130 * (1 - t) + 80 * t);
@@ -153,9 +206,15 @@ export class NoteVisualizer {
    * Returns the unique noteId for this note instance
    */
   noteOn(midiNote, frequency, isReferenceNote = false) {
-    const equalTempFreq = this.justIntervals.midiToFrequency(midiNote);
-    const cents = this.calculateCentsDeviation(frequency, equalTempFreq);
     const timestamp = performance.now();
+    
+    // Calculate ratio from reference
+    const ratioInfo = this.calculateRatioFromReference(
+      frequency,
+      midiNote,
+      this.referenceFrequency?.frequency,
+      this.referenceFrequency?.midiNote
+    );
     
     // Create unique ID for this note instance
     const noteId = this.nextNoteId++;
@@ -163,8 +222,15 @@ export class NoteVisualizer {
     // Initialize note data
     this.noteData.set(noteId, {
       midiNote,
-      equalTempFreq,
-      dataPoints: [{ timestamp, cents, frequency }],
+      referenceFreq: this.referenceFrequency?.frequency || frequency,
+      dataPoints: [{ 
+        timestamp, 
+        centsFromPureRatio: ratioInfo.centsFromPureRatio, 
+        frequency,
+        ratio: ratioInfo.ratio,
+        ratioString: ratioInfo.ratioString,
+        intervalName: ratioInfo.intervalName
+      }],
       isActive: true
     });
     
@@ -176,7 +242,24 @@ export class NoteVisualizer {
     
     // Update reference frequency if this is the bass/reference
     if (isReferenceNote) {
+      // Store initial reference if this is the first one
+      if (!this.initialReferenceFrequency) {
+        this.initialReferenceFrequency = { 
+          frequency, 
+          midiNote, 
+          timestamp 
+        };
+        this.referenceDriftCents = 0;
+        console.log(`Initial reference set: ${this.getNoteLabel(midiNote)} at ${frequency.toFixed(2)} Hz`);
+      }
+      
       this.referenceFrequency = { frequency, midiNote, timestamp };
+      
+      // Calculate drift from initial reference (only if same MIDI note)
+      if (this.initialReferenceFrequency && midiNote === this.initialReferenceFrequency.midiNote) {
+        this.referenceDriftCents = 1200 * Math.log2(frequency / this.initialReferenceFrequency.frequency);
+        console.log(`Reference drift: ${this.referenceDriftCents > 0 ? '+' : ''}${this.referenceDriftCents.toFixed(1)}¢ from initial`);
+      }
     }
     
     // Start animation if not running
@@ -188,7 +271,7 @@ export class NoteVisualizer {
   }
 
   /**
-   * Update a note's tuning (for retuning during bass changes)
+   * Update a note's tuning (for retuning during reference changes)
    * This updates ALL active instances of the given MIDI note
    */
   updateNoteTuning(midiNote, newFrequency, isSmooth = false, glideTime = 0.2) {
@@ -206,17 +289,23 @@ export class NoteVisualizer {
       const noteInfo = this.noteData.get(noteId);
       if (!noteInfo || !noteInfo.isActive) continue;
       
-      const newCents = this.calculateCentsDeviation(newFrequency, noteInfo.equalTempFreq);
+      // Calculate new ratio from reference
+      const newRatioInfo = this.calculateRatioFromReference(
+        newFrequency,
+        midiNote,
+        this.referenceFrequency?.frequency,
+        this.referenceFrequency?.midiNote
+      );
       
       if (isSmooth && noteInfo.dataPoints.length > 0) {
         // For smooth retuning, interpolate several points
         const lastPoint = noteInfo.dataPoints[noteInfo.dataPoints.length - 1];
         const oldFrequency = lastPoint.frequency;
-        const oldCents = lastPoint.cents;
+        const oldCents = lastPoint.centsFromPureRatio;
         
-        console.log(`  Note ${noteId}: ${oldCents.toFixed(1)}¢ → ${newCents.toFixed(1)}¢`);
+        console.log(`  Note ${noteId}: ${oldCents.toFixed(1)}¢ → ${newRatioInfo.centsFromPureRatio.toFixed(1)}¢ from perfect ratio`);
         
-        if (Math.abs(newCents - oldCents) > 1) {
+        if (Math.abs(newRatioInfo.centsFromPureRatio - oldCents) > 1) {
           const numSteps = Math.ceil(glideTime * 30); // ~30 samples per second
           for (let i = 1; i <= numSteps; i++) {
             const t = i / numSteps;
@@ -224,17 +313,41 @@ export class NoteVisualizer {
             // Exponential interpolation
             const ratio = Math.pow(newFrequency / oldFrequency, t);
             const interpFreq = oldFrequency * ratio;
-            const interpCents = this.calculateCentsDeviation(interpFreq, noteInfo.equalTempFreq);
-            noteInfo.dataPoints.push({ timestamp: interpTimestamp, cents: interpCents, frequency: interpFreq });
+            const interpRatioInfo = this.calculateRatioFromReference(
+              interpFreq,
+              midiNote,
+              this.referenceFrequency?.frequency,
+              this.referenceFrequency?.midiNote
+            );
+            noteInfo.dataPoints.push({ 
+              timestamp: interpTimestamp, 
+              centsFromPureRatio: interpRatioInfo.centsFromPureRatio, 
+              frequency: interpFreq,
+              ratio: interpRatioInfo.ratio,
+              ratioString: interpRatioInfo.ratioString,
+              intervalName: interpRatioInfo.intervalName
+            });
           }
         } else {
-          noteInfo.dataPoints.push({ timestamp, cents: newCents, frequency: newFrequency });
+          noteInfo.dataPoints.push({ 
+            timestamp, 
+            centsFromPureRatio: newRatioInfo.centsFromPureRatio, 
+            frequency: newFrequency,
+            ratio: newRatioInfo.ratio,
+            ratioString: newRatioInfo.ratioString,
+            intervalName: newRatioInfo.intervalName
+          });
         }
       } else {
         // Instant retune
-        const lastPoint = noteInfo.dataPoints[noteInfo.dataPoints.length - 1];
-        console.log(`  Note ${noteId}: ${lastPoint.cents.toFixed(1)}¢ → ${newCents.toFixed(1)}¢ (instant)`);
-        noteInfo.dataPoints.push({ timestamp, cents: newCents, frequency: newFrequency });
+        noteInfo.dataPoints.push({ 
+          timestamp, 
+          centsFromPureRatio: newRatioInfo.centsFromPureRatio, 
+          frequency: newFrequency,
+          ratio: newRatioInfo.ratio,
+          ratioString: newRatioInfo.ratioString,
+          intervalName: newRatioInfo.intervalName
+        });
       }
     }
     
@@ -261,6 +374,66 @@ export class NoteVisualizer {
     
     // Clear the active tracking for this MIDI note
     this.activeNotesByMidi.delete(midiNote);
+  }
+
+  /**
+   * Update all active notes' ratio displays when reference changes
+   * This recalculates ratios for all active notes without changing their frequencies
+   */
+  updateAllRatiosForNewReference() {
+    if (!this.referenceFrequency) return;
+    
+    // Calculate drift from initial reference
+    if (this.initialReferenceFrequency) {
+      if (this.referenceFrequency.midiNote === this.initialReferenceFrequency.midiNote) {
+        // Same note - direct comparison
+        this.referenceDriftCents = 1200 * Math.log2(
+          this.referenceFrequency.frequency / this.initialReferenceFrequency.frequency
+        );
+      } else {
+        // Different note - calculate based on expected frequency relationship
+        const expectedFreq = this.justIntervals.getJustFrequency(
+          this.initialReferenceFrequency.frequency,
+          this.initialReferenceFrequency.midiNote,
+          this.referenceFrequency.midiNote
+        );
+        this.referenceDriftCents = 1200 * Math.log2(
+          this.referenceFrequency.frequency / expectedFreq
+        );
+      }
+      console.log(`Reference drift updated: ${this.referenceDriftCents > 0 ? '+' : ''}${this.referenceDriftCents.toFixed(1)}¢ from initial`);
+    }
+    
+    const timestamp = performance.now();
+    console.log(`Updating all ratio displays for new reference: ${this.getNoteLabel(this.referenceFrequency.midiNote)}`);
+    
+    for (const [noteId, noteInfo] of this.noteData) {
+      if (!noteInfo.isActive) continue;
+      
+      // Get the current frequency of this note
+      const lastPoint = noteInfo.dataPoints[noteInfo.dataPoints.length - 1];
+      if (!lastPoint) continue;
+      
+      // Recalculate ratio based on new reference
+      const newRatioInfo = this.calculateRatioFromReference(
+        lastPoint.frequency,
+        noteInfo.midiNote,
+        this.referenceFrequency.frequency,
+        this.referenceFrequency.midiNote
+      );
+      
+      // Add a new data point with updated ratio info (same frequency, new ratio)
+      noteInfo.dataPoints.push({
+        timestamp,
+        centsFromPureRatio: newRatioInfo.centsFromPureRatio,
+        frequency: lastPoint.frequency,
+        ratio: newRatioInfo.ratio,
+        ratioString: newRatioInfo.ratioString,
+        intervalName: newRatioInfo.intervalName
+      });
+      
+      console.log(`  ${this.getNoteLabel(noteInfo.midiNote)}: ${lastPoint.ratioString} → ${newRatioInfo.ratioString}`);
+    }
   }
 
   /**
@@ -330,7 +503,7 @@ export class NoteVisualizer {
   }
 
   /**
-   * Update active notes with current frequency/cents data
+   * Update active notes with current frequency/ratio data
    * This continuously samples active notes to build their paths
    */
   updateActiveNotes(currentTime) {
@@ -343,12 +516,15 @@ export class NoteVisualizer {
       const timeSinceLastPoint = currentTime - lastPoint.timestamp;
       
       if (timeSinceLastPoint > 16) { // ~60fps
-        // For active notes, the frequency/cents should be stable unless retuning
+        // For active notes, the frequency/ratio should be stable unless retuning
         // Just add the current state as a new data point
         noteInfo.dataPoints.push({
           timestamp: currentTime,
-          cents: lastPoint.cents,
-          frequency: lastPoint.frequency
+          centsFromPureRatio: lastPoint.centsFromPureRatio,
+          frequency: lastPoint.frequency,
+          ratio: lastPoint.ratio,
+          ratioString: lastPoint.ratioString,
+          intervalName: lastPoint.intervalName
         });
       }
     }
@@ -384,25 +560,22 @@ export class NoteVisualizer {
   }
 
   /**
-   * Draw time axis label
+   * Draw time axis label (currently unused, but kept for potential future use)
    */
   drawTimeLabel() {
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-    this.ctx.font = '11px monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(`Time Window: ${this.timeWindow}s | Tuning Deviation: ±${this.maxDeviation}¢`, this.canvas.width / 2, 15);
+    // Time window label removed - information is implicit from time axis
   }
 
   /**
-   * Draw guitar-tuner-style display showing average cents deviation
-   * Always visible - shows active notes average, or reference freq when idle
+   * Draw guitar-tuner-style display showing average deviation from pure ratios
+   * and accumulated comma drift
    */
   drawTunerDisplay() {
-    // Calculate display value
+    // Calculate purity display value (deviation from perfect ratios)
     let displayCents = 0;
     let label = '';
     
-    // Calculate average cents deviation of all active notes
+    // Calculate average cents deviation from pure ratios of all active notes
     const activeNotesArray = Array.from(this.noteData.values()).filter(n => n.isActive);
     
     if (activeNotesArray.length > 0) {
@@ -413,20 +586,19 @@ export class NoteVisualizer {
       for (const noteInfo of activeNotesArray) {
         if (noteInfo.dataPoints.length > 0) {
           const lastPoint = noteInfo.dataPoints[noteInfo.dataPoints.length - 1];
-          totalCents += lastPoint.cents;
+          totalCents += lastPoint.centsFromPureRatio;
           count++;
         }
       }
       
       if (count > 0) {
         displayCents = totalCents / count;
-        label = `Average Comma (${count} note${count > 1 ? 's' : ''})`;
+        label = `Purity (${count} note${count > 1 ? 's' : ''})`;
       }
     } else if (this.referenceFrequency) {
-      // No active notes, but we have a reference - show its deviation
-      const equalTempFreq = this.justIntervals.midiToFrequency(this.referenceFrequency.midiNote);
-      displayCents = this.calculateCentsDeviation(this.referenceFrequency.frequency, equalTempFreq);
-      label = 'Reference Frequency';
+      // No active notes, reference is always perfectly in-tune with itself
+      displayCents = 0;
+      label = 'Perfect';
     } else {
       // No reference yet - show centered
       displayCents = 0;
@@ -480,11 +652,11 @@ export class NoteVisualizer {
       }
     }
     
-    // Needle position
+    // PRIMARY NEEDLE: Current purity (average deviation from perfect ratios)
     const needleCents = Math.max(-tickRange, Math.min(tickRange, displayCents));
     const needleX = centerX + (needleCents / tickRange) * (width / 2 - 10);
     
-    // Needle
+    // Needle triangle
     this.ctx.fillStyle = this.getColorFromCents(displayCents);
     this.ctx.beginPath();
     this.ctx.moveTo(needleX, y + 5);
@@ -498,24 +670,69 @@ export class NoteVisualizer {
     this.ctx.lineWidth = 3;
     this.ctx.beginPath();
     this.ctx.moveTo(needleX, y + 15);
-    this.ctx.lineTo(needleX, y + height - 5);
+    this.ctx.lineTo(needleX, y + height / 2 - 10);
     this.ctx.stroke();
     
-    // Display cents value
+    // Display purity cents value
     this.ctx.fillStyle = this.getColorFromCents(displayCents);
-    this.ctx.font = 'bold 14px monospace';
+    this.ctx.font = 'bold 11px monospace';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillText(
       `${displayCents > 0 ? '+' : ''}${displayCents.toFixed(1)}¢`,
       centerX,
-      y + height / 2 - 5
+      y + height / 2 - 12
     );
     
-    // Label
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    // SECONDARY INDICATOR: Comma drift (if present)
+    if (this.initialReferenceFrequency && Math.abs(this.referenceDriftCents) > 0.5) {
+      const driftCents = Math.max(-tickRange, Math.min(tickRange, this.referenceDriftCents));
+      const driftX = centerX + (driftCents / tickRange) * (width / 2 - 10);
+      
+      // Drift marker (small triangle at bottom)
+      this.ctx.fillStyle = '#FFD700'; // Gold for drift
+      this.ctx.globalAlpha = 0.8;
+      this.ctx.beginPath();
+      this.ctx.moveTo(driftX, y + height - 5);
+      this.ctx.lineTo(driftX - 5, y + height - 13);
+      this.ctx.lineTo(driftX + 5, y + height - 13);
+      this.ctx.closePath();
+      this.ctx.fill();
+      
+      // Drift line (subtle dashed line)
+      this.ctx.strokeStyle = '#FFD700';
+      this.ctx.lineWidth = 1.5;
+      this.ctx.setLineDash([3, 3]);
+      this.ctx.globalAlpha = 0.5;
+      this.ctx.beginPath();
+      this.ctx.moveTo(driftX, y + height / 2);
+      this.ctx.lineTo(driftX, y + height - 13);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+      this.ctx.globalAlpha = 1.0;
+      
+      // Drift value
+      this.ctx.fillStyle = '#FFD700';
+      this.ctx.font = 'bold 9px monospace';
+      this.ctx.fillText(
+        `${this.referenceDriftCents > 0 ? '+' : ''}${this.referenceDriftCents.toFixed(1)}¢`,
+        driftX,
+        y + height - 16
+      );
+    }
+    
+    // Labels
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     this.ctx.font = '9px monospace';
-    this.ctx.fillText(label, centerX, y + height - 12);
+    this.ctx.textAlign = 'left';
+    this.ctx.fillText(label, centerX - width/2 + 5, y + 10);
+    
+    // Drift label (if present)
+    if (this.initialReferenceFrequency && Math.abs(this.referenceDriftCents) > 0.5) {
+      this.ctx.fillStyle = '#FFD700';
+      this.ctx.textAlign = 'right';
+      this.ctx.fillText('Drift', centerX + width/2 - 5, y + 10);
+    }
   }
 
   /**
@@ -533,13 +750,15 @@ export class NoteVisualizer {
       
       // Key background
       if (isActive) {
-        // Get most recent cents value from any active instance
+        // Get most recent ratio info from any active instance
         let mostRecentCents = 0;
+        let ratioString = '1:1';
         for (const noteId of activeNoteIds) {
           const noteInfo = this.noteData.get(noteId);
           if (noteInfo && noteInfo.dataPoints.length > 0) {
             const lastPoint = noteInfo.dataPoints[noteInfo.dataPoints.length - 1];
-            mostRecentCents = lastPoint.cents;
+            mostRecentCents = lastPoint.centsFromPureRatio;
+            ratioString = lastPoint.ratioString;
             break; // Just use the first active one
           }
         }
@@ -574,21 +793,28 @@ export class NoteVisualizer {
         this.ctx.fillText(this.getNoteLabel(midiNote), bounds.centerX, bounds.y + bounds.height / 2);
       }
       
-      // Show cents deviation for active notes
+      // Show ratio and deviation for active notes
       if (isActive) {
         let mostRecentCents = 0;
+        let ratioString = '1:1';
         for (const noteId of activeNoteIds) {
           const noteInfo = this.noteData.get(noteId);
           if (noteInfo && noteInfo.dataPoints.length > 0) {
             const lastPoint = noteInfo.dataPoints[noteInfo.dataPoints.length - 1];
-            mostRecentCents = lastPoint.cents;
+            mostRecentCents = lastPoint.centsFromPureRatio;
+            ratioString = lastPoint.ratioString;
             break;
           }
         }
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
         this.ctx.font = 'bold 9px monospace';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(`${mostRecentCents > 0 ? '+' : ''}${mostRecentCents.toFixed(0)}¢`, bounds.centerX, bounds.y + bounds.height - 12);
+        this.ctx.fillText(ratioString, bounds.centerX, bounds.y + bounds.height - 18);
+        if (Math.abs(mostRecentCents) > 1) {
+          this.ctx.font = '8px monospace';
+          this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          this.ctx.fillText(`${mostRecentCents > 0 ? '+' : ''}${mostRecentCents.toFixed(0)}¢`, bounds.centerX, bounds.y + bounds.height - 8);
+        }
       }
     }
     
@@ -610,12 +836,8 @@ export class NoteVisualizer {
     // Get the key bounds for the reference note
     const bounds = this.getKeyBounds(refMidi);
     
-    // Calculate the X position based on the actual frequency
-    // The reference frequency might be detuned from equal temperament
-    const equalTempFreq = this.justIntervals.midiToFrequency(refMidi);
-    const cents = this.calculateCentsDeviation(refFreq, equalTempFreq);
-    const xOffset = this.getXOffsetFromCents(cents, bounds);
-    const x = bounds.centerX + xOffset;
+    // The reference is always perfectly centered (it's the reference - ratio 1:1)
+    const x = bounds.centerX;
     
     // Draw a vertical golden line from the key through the entire plot
     this.ctx.strokeStyle = '#FFD700'; // Gold
@@ -631,12 +853,12 @@ export class NoteVisualizer {
     this.ctx.setLineDash([]); // Reset to solid line
     this.ctx.globalAlpha = 1.0;
     
-    // Add a label at the top
+    // Add a label at the top showing reference note
     this.ctx.fillStyle = '#FFD700';
     this.ctx.font = 'bold 10px monospace';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'top';
-    this.ctx.fillText(`REF: ${this.getNoteLabel(refMidi)} (${refFreq.toFixed(1)} Hz, ${cents > 0 ? '+' : ''}${cents.toFixed(1)}¢)`, x, 25);
+    this.ctx.fillText(`REFERENCE: ${this.getNoteLabel(refMidi)} (${refFreq.toFixed(1)} Hz)`, x, 25);
   }
 
   /**
@@ -654,13 +876,13 @@ export class NoteVisualizer {
       
       // Only include points within visible area (with small buffer)
       if (y >= -10 && y <= this.plotHeight + 10) {
-        const xOffset = this.getXOffsetFromCents(dataPoint.cents, bounds);
+        const xOffset = this.getXOffsetFromCents(dataPoint.centsFromPureRatio, bounds);
         const x = bounds.centerX + xOffset;
-        points.push({ x, y, cents: dataPoint.cents });
+        points.push({ x, y, cents: dataPoint.centsFromPureRatio });
       }
     }
     
-    // Draw the path with color gradient based on detuning
+    // Draw the path with color gradient based on deviation from pure ratio
     if (points.length >= 2) {
       this.ctx.lineWidth = bounds.pathWidth;
       this.ctx.lineCap = 'round';
