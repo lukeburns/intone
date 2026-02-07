@@ -14,6 +14,8 @@ class Voice {
     this.oscillator = null;
     this.filter = null;
     this.gainEnvelope = null;
+    this.lfo = null;  // LFO for vibrato
+    this.lfoGain = null;  // LFO amount control
     
     // State
     this.isActive = false;
@@ -24,6 +26,9 @@ class Voice {
     // Tuning tracking
     this.tunedToBassNote = null;  // Which bass note was this tuned against?
     this.tunedToBassFreq = null;
+    
+    // Vibrato state
+    this.vibratoAmount = 0;  // Current mod wheel amount (0-1)
   }
 
   /**
@@ -58,11 +63,27 @@ class Voice {
     }
     
     // Create new oscillator
-    
-    // Create new oscillator
     this.oscillator = this.audioContext.createOscillator();
     this.oscillator.type = params.waveform;
     this.oscillator.frequency.value = frequency;
+    
+    // Create LFO for vibrato (very slow, subtle pitch modulation)
+    this.lfo = this.audioContext.createOscillator();
+    this.lfo.type = 'sine';
+    // Variable rate: 0.5Hz to 3Hz based on note (slightly different per voice)
+    const baseRate = 0.5 + (Math.random() * 0.3); // 0.5-0.8 Hz per voice
+    this.lfo.frequency.value = baseRate;
+    
+    // LFO gain controls the amount of frequency modulation
+    this.lfoGain = this.audioContext.createGain();
+    this.lfoGain.gain.value = 0; // Start at 0, controlled by mod wheel
+    
+    // Connect LFO to oscillator frequency (for vibrato)
+    this.lfo.connect(this.lfoGain);
+    this.lfoGain.connect(this.oscillator.frequency);
+    
+    // Start LFO
+    this.lfo.start();
     
     // Create filter
     this.filter = this.audioContext.createBiquadFilter();
@@ -158,20 +179,29 @@ class Voice {
     
     // Stop and clean up after release
     this.oscillator.stop(now + releaseTime);
+    if (this.lfo) {
+      this.lfo.stop(now + releaseTime);
+    }
     
     const oldOsc = this.oscillator;
     const oldGain = this.gainEnvelope;
     const oldFilter = this.filter;
+    const oldLfo = this.lfo;
+    const oldLfoGain = this.lfoGain;
     
     setTimeout(() => {
       oldOsc.disconnect();
       oldGain.disconnect();
       oldFilter.disconnect();
+      if (oldLfo) oldLfo.disconnect();
+      if (oldLfoGain) oldLfoGain.disconnect();
     }, releaseTime * 1000 + 100);
     
     this.oscillator = null;
     this.gainEnvelope = null;
     this.filter = null;
+    this.lfo = null;
+    this.lfoGain = null;
     this.isActive = false;
     this.midiNote = null;
     this.frequency = null;
@@ -191,6 +221,9 @@ class Voice {
         this.gainEnvelope.gain.linearRampToValueAtTime(0.001, now + 0.01);
         
         this.oscillator.stop(now + 0.01);
+        if (this.lfo) {
+          this.lfo.stop(now + 0.01);
+        }
         
         // Disconnect after fade
         setTimeout(() => {
@@ -198,6 +231,8 @@ class Voice {
             this.oscillator.disconnect();
             this.filter.disconnect();
             this.gainEnvelope.disconnect();
+            if (this.lfo) this.lfo.disconnect();
+            if (this.lfoGain) this.lfoGain.disconnect();
           } catch (e) {
             // Already disconnected
           }
@@ -209,11 +244,41 @@ class Voice {
       this.oscillator = null;
       this.gainEnvelope = null;
       this.filter = null;
+      this.lfo = null;
+      this.lfoGain = null;
     }
     
     this.isActive = false;
     this.midiNote = null;
     this.frequency = null;
+  }
+
+  /**
+   * Update vibrato amount (controlled by mod wheel)
+   * @param {number} amount - 0.0 to 1.0
+   */
+  setVibratoAmount(amount) {
+    if (!this.lfoGain || !this.oscillator) return;
+    
+    this.vibratoAmount = amount;
+    
+    // Map mod wheel amount to a very small frequency deviation
+    // At max (amount=1.0): ±0.5 cents deviation (very subtle!)
+    // This is 0.5/1200 = 0.00041667 of the base frequency
+    const maxDeviationRatio = 0.005; // 0.5 cents max
+    const deviationHz = this.frequency * maxDeviationRatio * amount;
+    
+    // Update LFO gain smoothly
+    const now = this.audioContext.currentTime;
+    this.lfoGain.gain.cancelScheduledValues(now);
+    this.lfoGain.gain.setValueAtTime(this.lfoGain.gain.value, now);
+    this.lfoGain.gain.linearRampToValueAtTime(deviationHz, now + 0.05);
+    
+    // Also vary LFO rate slightly with mod wheel for more organic feel
+    // Base rate + up to 2Hz additional
+    const baseRate = 0.5 + (Math.random() * 0.3);
+    const lfoRate = baseRate + (amount * 2.0);
+    this.lfo.frequency.setValueAtTime(lfoRate, now);
   }
 }
 
@@ -515,6 +580,7 @@ export class PolySynth extends BaseSynth {
     return {
       midiNote,
       frequency,
+      voice,  // Return the voice instance for sustain tracking
       noteName: this.justIntervals.getMidiNoteName(midiNote),
       velocity,
       intervalInfo,
@@ -535,10 +601,27 @@ export class PolySynth extends BaseSynth {
   /**
    * Implementation of BaseSynth abstract method for sustain pedal
    * Returns information about retuned notes if reference changed
+   * @param {number} midiNote - The MIDI note to release
+   * @param {Array} sustainedVoicesToRelease - Optional: specific voice instances to release (from sustain pedal)
    */
-  _releaseNote(midiNote) {
-    // Find all voices playing this note
-    const voicesToRelease = this.voices.filter(v => v.isActive && v.midiNote === midiNote);
+  _releaseNote(midiNote, sustainedVoicesToRelease = null) {
+    let voicesToRelease;
+    
+    if (sustainedVoicesToRelease && sustainedVoicesToRelease.length > 0) {
+      // Only release the specific voices that were sustained
+      voicesToRelease = this.voices.filter(v => 
+        v.isActive && 
+        v.midiNote === midiNote && 
+        sustainedVoicesToRelease.includes(v)
+      );
+    } else {
+      // Normal note off: release all voices playing this note
+      voicesToRelease = this.voices.filter(v => v.isActive && v.midiNote === midiNote);
+    }
+    
+    if (voicesToRelease.length === 0) {
+      return [];
+    }
     
     // Get current reference BEFORE releasing
     const currentReference = this.getReferenceVoice();
@@ -561,8 +644,8 @@ export class PolySynth extends BaseSynth {
       v.isActive = false;
     });
     
-    // In random mode, clear the current reference if we just released it
-    if (this.referenceMode === 'random' && wasReference) {
+    // In random/lattice mode, clear the current reference if we just released it
+    if ((this.referenceMode === 'random' || this.referenceMode === 'lattice') && wasReference) {
       this.currentReferenceVoice = null;
     }
     
@@ -643,6 +726,18 @@ export class PolySynth extends BaseSynth {
         
         const now = this.audioContext.currentTime;
         voice.oscillator.frequency.setValueAtTime(bentFrequency, now);
+      }
+    }
+  }
+
+  /**
+   * Set vibrato amount for all voices (mod wheel control)
+   * @param {number} amount - 0.0 to 1.0
+   */
+  setVibratoAmount(amount) {
+    for (const voice of this.voices) {
+      if (voice.isActive) {
+        voice.setVibratoAmount(amount);
       }
     }
   }

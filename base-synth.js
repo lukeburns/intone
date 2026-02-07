@@ -29,7 +29,9 @@ export class BaseSynth {
     
     // Sustain pedal state
     this.sustainPedalDown = false;
-    this.sustainedNotes = new Set();  // Notes held by sustain pedal
+    this.sustainedNotes = new Set();  // MIDI notes held by sustain pedal (for compatibility)
+    this.sustainedVoices = new Set(); // Specific voice instances held by sustain pedal
+    this.keysHeldDown = new Set();    // MIDI notes with keys currently physically held down
     
     // Retuning mode (for polysynth)
     this.retuneMode = 'static'; // 'static', 'smooth', 'instant'
@@ -143,20 +145,28 @@ export class BaseSynth {
   }
 
   /**
-   * Handle sustain pedal up - release all sustained notes
+   * Handle sustain pedal up - release all sustained notes that aren't being held
    * Returns array of retuned notes (for polysynth)
    */
   handleSustainPedalUp() {
     this.sustainPedalDown = false;
     console.log('Sustain pedal: UP');
+    console.log('Keys currently held down:', Array.from(this.keysHeldDown));
+    console.log('Sustained notes:', Array.from(this.sustainedNotes));
     
-    // Release all notes that were being held by the pedal
-    const notesToRelease = Array.from(this.sustainedNotes);
+    // Release notes that were sustained BUT whose keys are no longer held down
+    const notesToRelease = Array.from(this.sustainedNotes).filter(note => !this.keysHeldDown.has(note));
+    const voicesToRelease = Array.from(this.sustainedVoices);
+    
+    console.log('Notes to release (sustained but not held):', notesToRelease);
+    
     this.sustainedNotes.clear();
+    this.sustainedVoices.clear();
     
     const allRetunedNotes = [];
     notesToRelease.forEach(note => {
-      const retunedNotes = this._releaseNote(note);
+      // Pass the set of sustained voices so _releaseNote knows which to release
+      const retunedNotes = this._releaseNote(note, voicesToRelease);
       if (retunedNotes && Array.isArray(retunedNotes)) {
         allRetunedNotes.push(...retunedNotes);
       }
@@ -168,11 +178,16 @@ export class BaseSynth {
   /**
    * Handle note off with sustain pedal consideration
    * Returns true if note should be released, false if sustained
+   * @param {number} midiNote - The MIDI note number
+   * @param {Object} voice - Optional: the specific voice instance to sustain (for polysynth)
    */
-  handleNoteOffWithSustain(midiNote) {
+  handleNoteOffWithSustain(midiNote, voice = null) {
     if (this.sustainPedalDown) {
       // Pedal is down - add to sustained notes instead of releasing
       this.sustainedNotes.add(midiNote);
+      if (voice) {
+        this.sustainedVoices.add(voice);
+      }
       console.log(`Note ${midiNote} held by sustain pedal`);
       return false;  // Don't release yet
     } else {

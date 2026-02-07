@@ -186,8 +186,10 @@ export class Synth extends BaseSynth {
 
   /**
    * Implementation of BaseSynth abstract method for sustain pedal
+   * @param {number} midiNote - The MIDI note to release
+   * @param {Array} sustainedVoicesToRelease - Unused for monosynth (for API compatibility)
    */
-  _releaseNote(midiNote) {
+  _releaseNote(midiNote, sustainedVoicesToRelease = null) {
     // For monosynth, only release if it's the current note
     if (this.currentNote === midiNote) {
       this.noteOff();

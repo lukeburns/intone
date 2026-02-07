@@ -4,11 +4,12 @@
  */
 
 export class MIDIHandler {
-  constructor(onNoteOn, onNoteOff, onSustainPedal, onPitchBend) {
+  constructor(onNoteOn, onNoteOff, onSustainPedal, onPitchBend, onModWheel) {
     this.onNoteOn = onNoteOn;
     this.onNoteOff = onNoteOff;
     this.onSustainPedal = onSustainPedal || (() => {}); // Optional callback
     this.onPitchBend = onPitchBend || (() => {}); // Optional callback
+    this.onModWheel = onModWheel || (() => {}); // Optional callback
     this.midiAccess = null;
     this.connectedDevices = [];
   }
@@ -117,13 +118,18 @@ export class MIDIHandler {
    */
   handleControlChange(controller, value) {
     switch (controller) {
+      case 1: // Modulation Wheel (CC1)
+        // Normalize to 0.0 - 1.0 range
+        const modAmount = value / 127;
+        this.onModWheel(modAmount);
+        break;
+        
       case 64: // Sustain Pedal (CC64)
         const pedalDown = value >= 64;
         this.onSustainPedal(pedalDown);
         break;
         
       // Could add more controllers here:
-      // case 1: // Modulation wheel
       // case 7: // Volume
       // case 10: // Pan
       // etc.

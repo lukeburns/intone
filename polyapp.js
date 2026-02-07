@@ -252,7 +252,8 @@ class PolyApp {
         (note, velocity) => this.handleNoteOn(note, velocity),
         (note) => this.handleNoteOff(note),
         (pedalDown) => this.handleSustainPedal(pedalDown),
-        (amount) => this.handlePitchBend(amount)
+        (amount) => this.handlePitchBend(amount),
+        (amount) => this.handleModWheel(amount)
       );
       
       await this.midiHandler.init();
@@ -288,6 +289,9 @@ class PolyApp {
   async handleNoteOn(midiNote, velocity) {
     await this.ensureInitialized();
     if (this.synth) {
+      // Mark this key as being held down
+      this.synth.keysHeldDown.add(midiNote);
+      
       const noteInfo = this.synth.noteOn(midiNote, velocity);
       this.updateUI(noteInfo);
       
@@ -321,8 +325,18 @@ class PolyApp {
   async handleNoteOff(midiNote) {
     await this.ensureInitialized();
     if (this.synth) {
+      // Mark this key as no longer being held down
+      this.synth.keysHeldDown.delete(midiNote);
+      
+      // Find the voice(s) playing this note that we're about to release
+      const voicesToCheck = this.synth.voices.filter(v => v.isActive && v.midiNote === midiNote);
+      
       // Check if sustain pedal should hold the note
-      if (this.synth.handleNoteOffWithSustain(midiNote)) {
+      // Pass the voice instance so the synth can track which specific voices are sustained
+      const shouldRelease = voicesToCheck.length > 0 && 
+        this.synth.handleNoteOffWithSustain(midiNote, voicesToCheck[voicesToCheck.length - 1]);
+      
+      if (shouldRelease) {
         // Note is actually being released (not sustained)
         
         // Update visualizer
@@ -370,13 +384,18 @@ class PolyApp {
       } else {
         // Get the notes that were being sustained before releasing the pedal
         const sustainedNotes = Array.from(this.synth.sustainedNotes);
+        const keysHeldDown = Array.from(this.synth.keysHeldDown);
         
         const retunedNotes = this.synth.handleSustainPedalUp();
         
         // Tell visualizer that sustained notes are now released
+        // BUT only for notes whose keys are no longer held down
         if (this.visualizer) {
           sustainedNotes.forEach(midiNote => {
-            this.visualizer.noteOff(midiNote);
+            // Only stop visualizing if the key is not currently held down
+            if (!keysHeldDown.includes(midiNote)) {
+              this.visualizer.noteOff(midiNote);
+            }
           });
         }
         
@@ -426,6 +445,12 @@ class PolyApp {
           };
         }
       }
+    }
+  }
+
+  handleModWheel(amount) {
+    if (this.synth) {
+      this.synth.setVibratoAmount(amount);
     }
   }
 

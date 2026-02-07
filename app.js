@@ -265,6 +265,9 @@ class App {
   async handleNoteOn(midiNote, velocity) {
     await this.ensureInitialized();
     if (this.synth) {
+      // Mark this key as being held down
+      this.synth.keysHeldDown.add(midiNote);
+      
       const noteInfo = this.synth.noteOn(midiNote, velocity);
       this.updateUI(noteInfo);
       
@@ -279,6 +282,9 @@ class App {
   async handleNoteOff(midiNote) {
     await this.ensureInitialized();
     if (this.synth) {
+      // Mark this key as no longer being held down
+      this.synth.keysHeldDown.delete(midiNote);
+      
       // Only trigger noteOff if this is the currently playing note
       const state = this.synth.getState();
       if (state.currentNote === midiNote) {
@@ -308,13 +314,18 @@ class App {
       } else {
         // Get the notes that were being sustained before releasing the pedal
         const sustainedNotes = Array.from(this.synth.sustainedNotes);
+        const keysHeldDown = Array.from(this.synth.keysHeldDown);
         
         this.synth.handleSustainPedalUp();
         
         // Tell visualizer that sustained notes are now released
+        // BUT only for notes whose keys are no longer held down
         if (this.visualizer) {
           sustainedNotes.forEach(midiNote => {
-            this.visualizer.noteOff(midiNote);
+            // Only stop visualizing if the key is not currently held down
+            if (!keysHeldDown.includes(midiNote)) {
+              this.visualizer.noteOff(midiNote);
+            }
           });
         }
         
