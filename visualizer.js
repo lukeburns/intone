@@ -53,6 +53,21 @@ export class NoteVisualizer {
     this.animationId = null;
     
     this.setupCanvas();
+    
+    // Draw initial empty state so users know the visualizer is there
+    this.drawInitialState();
+  }
+
+  drawInitialState() {
+    // Clear canvas
+    this.ctx.fillStyle = '#1a1a2e';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    // Draw keyboard
+    this.drawKeyboard();
+    
+    // Draw tuner display
+    this.drawTunerDisplay();
   }
 
   setupCanvas() {
@@ -85,6 +100,11 @@ export class NoteVisualizer {
     }
     
     this.plotHeight = this.canvas.height - this.keyboardHeight - this.tunerHeight;
+    
+    // Redraw if animation is not running (i.e., no notes playing yet)
+    if (!this.animationId) {
+      this.drawInitialState();
+    }
   }
 
   /**
