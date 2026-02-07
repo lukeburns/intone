@@ -46,6 +46,9 @@ class PolyApp {
       filterEnvValue: document.getElementById('filterEnvValue'),
       volume: document.getElementById('volume'),
       volumeValue: document.getElementById('volumeValue'),
+      stereoSpread: document.getElementById('stereoSpread'),
+      stereoSpreadValue: document.getElementById('stereoSpreadValue'),
+      spreadMode: document.getElementById('spreadMode'),
       midiDeviceList: document.getElementById('midiDeviceList'),
       visualizerSection: document.getElementById('visualizerSection'),
       fullscreenBtn: document.getElementById('fullscreenBtn'),
@@ -82,6 +85,9 @@ class PolyApp {
     this.elements.filterEnvValue.textContent = `${settings.filterEnv} Hz`;
     this.elements.volume.value = settings.volume;
     this.elements.volumeValue.textContent = `${settings.volume}%`;
+    this.elements.stereoSpread.value = settings.stereoSpread || 0;
+    this.elements.stereoSpreadValue.textContent = `${settings.stereoSpread || 0}%`;
+    this.elements.spreadMode.value = settings.spreadMode || 'linear';
   }
 
   /**
@@ -99,7 +105,9 @@ class PolyApp {
       filterFreq: parseInt(this.elements.filterFreq.value),
       filterQ: parseFloat(this.elements.filterQ.value),
       filterEnv: parseInt(this.elements.filterEnv.value),
-      volume: parseInt(this.elements.volume.value)
+      volume: parseInt(this.elements.volume.value),
+      stereoSpread: parseInt(this.elements.stereoSpread.value),
+      spreadMode: this.elements.spreadMode.value
     };
     this.settingsManager.saveSettings(settings);
   }
@@ -217,6 +225,24 @@ class PolyApp {
       }
       this.saveSettings();
     });
+    
+    // Stereo spread control
+    this.elements.stereoSpread.addEventListener('input', (e) => {
+      const spread = parseInt(e.target.value);
+      this.elements.stereoSpreadValue.textContent = `${spread}%`;
+      if (this.synth) {
+        this.synth.setStereoSpread(spread / 100);
+      }
+      this.saveSettings();
+    });
+    
+    // Spread mode control
+    this.elements.spreadMode.addEventListener('change', (e) => {
+      if (this.synth) {
+        this.synth.setSpreadMode(e.target.value);
+      }
+      this.saveSettings();
+    });
   }
 
   async initialize() {
@@ -243,6 +269,8 @@ class PolyApp {
       this.synth.setFilterQ(settings.filterQ);
       this.synth.setFilterEnvelopeAmount(settings.filterEnv);
       this.synth.setVolume(settings.volume / 100);
+      this.synth.setStereoSpread((settings.stereoSpread || 0) / 100);
+      this.synth.setSpreadMode(settings.spreadMode || 'linear');
       
       // Initialize visualizer
       this.visualizer = new NoteVisualizer('noteCanvas');
@@ -475,7 +503,7 @@ class PolyApp {
       const modeLabels = {
         bass: ' (bass)',
         random: ' (random)',
-        lattice: ' (lattice)'
+        harmonic: ' (harmonic)'
       };
       const modeLabel = modeLabels[state.referenceMode] || '';
       this.elements.bassNote.textContent = refNoteName + modeLabel;
@@ -524,7 +552,7 @@ class PolyApp {
       const modeLabels = {
         bass: ' (bass)',
         random: ' (random)',
-        lattice: ' (lattice)'
+        harmonic: ' (harmonic)'
       };
       const modeLabel = modeLabels[state.referenceMode] || '';
       this.elements.bassNote.textContent = refNoteName + modeLabel;

@@ -14,6 +14,7 @@ class Voice {
     this.oscillator = null;
     this.filter = null;
     this.gainEnvelope = null;
+    this.panner = null;  // Stereo panner
     this.lfo = null;  // LFO for vibrato
     this.lfoGain = null;  // LFO amount control
     
@@ -29,6 +30,9 @@ class Voice {
     
     // Vibrato state
     this.vibratoAmount = 0;  // Current mod wheel amount (0-1)
+    
+    // Stereo position
+    this.panPosition = 0;  // -1 (left) to 1 (right)
   }
 
   /**
@@ -95,10 +99,15 @@ class Voice {
     this.gainEnvelope = this.audioContext.createGain();
     this.gainEnvelope.gain.value = 0;
     
-    // Connect the audio graph
+    // Create stereo panner
+    this.panner = this.audioContext.createStereoPanner();
+    this.panner.pan.value = this.panPosition;
+    
+    // Connect the audio graph: Oscillator -> Filter -> Gain -> Panner -> Master
     this.oscillator.connect(this.filter);
     this.filter.connect(this.gainEnvelope);
-    this.gainEnvelope.connect(this.masterGain);
+    this.gainEnvelope.connect(this.panner);
+    this.panner.connect(this.masterGain);
     
     // Start the oscillator
     this.oscillator.start();
@@ -186,6 +195,7 @@ class Voice {
     const oldOsc = this.oscillator;
     const oldGain = this.gainEnvelope;
     const oldFilter = this.filter;
+    const oldPanner = this.panner;
     const oldLfo = this.lfo;
     const oldLfoGain = this.lfoGain;
     
@@ -193,6 +203,7 @@ class Voice {
       oldOsc.disconnect();
       oldGain.disconnect();
       oldFilter.disconnect();
+      if (oldPanner) oldPanner.disconnect();
       if (oldLfo) oldLfo.disconnect();
       if (oldLfoGain) oldLfoGain.disconnect();
     }, releaseTime * 1000 + 100);
@@ -200,6 +211,7 @@ class Voice {
     this.oscillator = null;
     this.gainEnvelope = null;
     this.filter = null;
+    this.panner = null;
     this.lfo = null;
     this.lfoGain = null;
     this.isActive = false;
@@ -231,6 +243,7 @@ class Voice {
             this.oscillator.disconnect();
             this.filter.disconnect();
             this.gainEnvelope.disconnect();
+            if (this.panner) this.panner.disconnect();
             if (this.lfo) this.lfo.disconnect();
             if (this.lfoGain) this.lfoGain.disconnect();
           } catch (e) {
@@ -244,6 +257,7 @@ class Voice {
       this.oscillator = null;
       this.gainEnvelope = null;
       this.filter = null;
+      this.panner = null;
       this.lfo = null;
       this.lfoGain = null;
     }
@@ -280,6 +294,18 @@ class Voice {
     const lfoRate = baseRate + (amount * 2.0);
     this.lfo.frequency.setValueAtTime(lfoRate, now);
   }
+
+  /**
+   * Set stereo pan position
+   * @param {number} position - -1.0 (left) to 1.0 (right)
+   */
+  setPan(position) {
+    this.panPosition = Math.max(-1, Math.min(1, position));
+    if (this.panner) {
+      const now = this.audioContext.currentTime;
+      this.panner.pan.setValueAtTime(this.panPosition, now);
+    }
+  }
 }
 
 /**
@@ -307,6 +333,10 @@ export class PolySynth extends BaseSynth {
     // Reference mode and tracking
     this.referenceMode = 'bass'; // 'bass' or 'random'
     this.currentReferenceVoice = null; // For random mode: sticky reference
+    
+    // Stereo spread settings
+    this.stereoSpread = 0; // 0.0 to 1.0
+    this.spreadMode = 'linear'; // 'linear', 'pitch', 'harmonic', 'alternating'
   }
 
   /**
@@ -577,6 +607,9 @@ export class PolySynth extends BaseSynth {
       referenceVoice ? referenceVoice.frequency : frequency
     );
     
+    // Update stereo panning for all voices
+    this.updateAllVoicePanning();
+    
     return {
       midiNote,
       frequency,
@@ -752,6 +785,84 @@ export class PolySynth extends BaseSynth {
     const centsOffset = this.pitchBendAmount * this.pitchBendRange;
     const bendRatio = Math.pow(2, centsOffset / 1200);
     return referenceVoice.frequency * bendRatio;
+  }
+
+  /**
+   * Set stereo spread amount (0.0 to 1.0)
+   */
+  setStereoSpread(amount) {
+    this.stereoSpread = Math.max(0, Math.min(1, amount));
+    this.updateAllVoicePanning();
+  }
+
+  /**
+   * Set spread mode
+   */
+  setSpreadMode(mode) {
+    this.spreadMode = mode;
+    this.updateAllVoicePanning();
+  }
+
+  /**
+   * Calculate pan position for a voice based on spread mode
+   */
+  calculatePanPosition(voice, voiceIndex) {
+    if (this.stereoSpread === 0) return 0;
+    
+    const activeVoices = this.voices.filter(v => v.isActive);
+    const numActive = activeVoices.length;
+    if (numActive <= 1) return 0;
+    
+    let panValue = 0;
+    
+    switch (this.spreadMode) {
+      case 'linear':
+        // Evenly distribute voices across stereo field
+        const voicePosition = activeVoices.indexOf(voice);
+        panValue = (voicePosition / (numActive - 1)) * 2 - 1; // -1 to 1
+        break;
+        
+      case 'pitch':
+        // Pan based on frequency (lower = left, higher = right)
+        const minFreq = Math.min(...activeVoices.map(v => v.frequency));
+        const maxFreq = Math.max(...activeVoices.map(v => v.frequency));
+        if (maxFreq > minFreq) {
+          panValue = ((voice.frequency - minFreq) / (maxFreq - minFreq)) * 2 - 1;
+        }
+        break;
+        
+      case 'harmonic':
+        // Pan based on interval from reference
+        const refVoice = this.getReferenceVoice();
+        if (refVoice && voice !== refVoice) {
+          const interval = Math.abs(voice.midiNote - refVoice.midiNote);
+          // Center the reference, spread others by interval size
+          panValue = (interval % 12) / 12 * 2 - 1;
+          // Alternate sides for ascending/descending
+          if (voice.midiNote < refVoice.midiNote) panValue *= -1;
+        }
+        break;
+        
+      case 'alternating':
+        // Simple L/R alternating pattern
+        panValue = (voiceIndex % 2 === 0) ? -1 : 1;
+        break;
+    }
+    
+    // Apply spread amount (0 = mono, 1 = full stereo)
+    return panValue * this.stereoSpread;
+  }
+
+  /**
+   * Update panning for all active voices
+   */
+  updateAllVoicePanning() {
+    this.voices.forEach((voice, index) => {
+      if (voice.isActive) {
+        const panPosition = this.calculatePanPosition(voice, index);
+        voice.setPan(panPosition);
+      }
+    });
   }
 
   /**

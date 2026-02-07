@@ -470,7 +470,7 @@
         <select id="referenceMode" class="control-input">
           <option value="bass">Bass - Lowest active note</option>
           <option value="random">Random - Random sticky note</option>
-          <option value="lattice">Lattice - Harmonic center (Tonnetz)</option>
+          <option value="harmonic">Harmonic - Harmonic center (Tonnetz)</option>
         </select>
       </div>
 
@@ -546,6 +546,27 @@
         </label>
         <input type="range" id="volume" class="control-input" min="0" max="100" value="40" step="1">
       </div>
+
+      <div class="control-section-title">Stereo</div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Stereo Spread: <span class="range-value" id="stereoSpreadValue">0%</span>
+        </label>
+        <input type="range" id="stereoSpread" class="control-input" min="0" max="100" value="0" step="1">
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Spread Mode
+        </label>
+        <select id="spreadMode" class="control-input">
+          <option value="linear">Linear - Evenly distributed</option>
+          <option value="pitch">Pitch - Based on note frequency</option>
+          <option value="harmonic">Harmonic - Based on interval to reference</option>
+          <option value="alternating">Alternating - L/R pattern</option>
+        </select>
+      </div>
     </div>
 
     <div class="button-group">
@@ -565,7 +586,7 @@
       <ul style="margin: 10px 0 0 20px; line-height: 1.6;">
         <li><strong>Bass Mode:</strong> The lowest note becomes the reference. All other notes tune to it. When you release the bass, the new lowest note becomes the reference.</li>
         <li><strong>Random Mode:</strong> A random note is chosen as the reference and "sticks" until released. Other notes tune to this reference. When the reference is released, a new random note is chosen from the remaining voices.</li>
-        <li><strong>Lattice Mode:</strong> The "harmonic center" becomes the reference - the note with the strongest consonant relationships to all other notes (inspired by the Tonnetz). This finds the "root" of the chord regardless of pitch order. Great for inversions!</li>
+        <li><strong>Harmonic Mode:</strong> The "harmonic center" becomes the reference - the note with the strongest consonant relationships to all other notes (inspired by the Tonnetz). This finds the "root" of the chord regardless of pitch order. Great for inversions!</li>
       </ul>
       <p style="margin-top: 10px;">
         <strong>Reference Change Behavior:</strong> When the reference changes:
