@@ -1,6 +1,23 @@
-# Just Interval Monosynth 🎹
+# Just Interval Synth 🎹
 
-A MIDI-controlled monosynth that uses **just intonation** based on the last played note. Each note is tuned in perfect harmonic relationship to the previous note, creating pure musical intervals.
+MIDI-controlled synthesizers that use **just intonation** for pure harmonic intervals. Includes both monophonic and polyphonic versions with different tuning approaches.
+
+## Synth Types
+
+### 🎵 Monosynth (Sequential Tuning)
+A monophonic synth where each note is tuned relative to the **last played note**. This creates melodically coherent sequences where each interval is perfectly in tune with the previous note.
+
+**Use for:** Melodic lines, solos, exploring interval relationships
+
+### PolySynth (Bass-Driven)
+An 8-voice polyphonic synth where all notes are tuned relative to the **lowest currently playing note** (the bass). This creates harmonically pure chords with simple frequency ratios.
+
+**Bass Change Modes:**
+- **Static** (default): Notes keep their tuning when bass changes (smooth, natural)
+- **Smooth**: Notes glide to new tuning over 200ms (experimental, theremin-like)
+- **Instant**: Notes snap immediately to new tuning (demonstrates the math)
+
+**Use for:** Chords, harmonic exploration, pure triads and intervals
 
 ## What is Just Intonation?
 
@@ -8,26 +25,39 @@ Just intonation uses simple frequency ratios (like 3:2 for a perfect fifth) inst
 
 ## How It Works
 
-1. **First Note**: The first note you play uses standard equal temperament tuning (A4 = 440 Hz)
-2. **Subsequent Notes**: Each following note is calculated using just intonation ratios based on its interval from the **previous** note
+### Monosynth (Sequential)
+1. **First Note**: Uses standard equal temperament tuning (A4 = 440 Hz)
+2. **Subsequent Notes**: Each note is calculated using just intonation ratios based on the **previous** note
 3. **Reference Note**: After releasing a note, it becomes the reference for the next note
 4. **Reset**: You can reset the reference at any time to start fresh
 
-### Example
+**Example:**
+- **C4** (first note) → 261.63 Hz (equal temperament)
+- **G4** (perfect fifth) → 261.63 × 3/2 = 392.44 Hz
+- **E4** (down a minor third) → 392.44 × 5/6 = 327.03 Hz
 
-If you play:
-- **C4** (first note) → Uses equal temperament: 261.63 Hz
-- **G4** (perfect fifth) → Uses 3:2 ratio: 261.63 × 3/2 = 392.44 Hz
-- **E4** (down a minor third) → Uses 6:5 ratio from G4: 392.44 × 5/6 = 327.03 Hz
+### PolySynth (Bass-Driven)
+1. **First/Lowest Note**: Becomes the "bass" reference, uses equal temperament
+2. **Higher Notes**: All other notes tune to the bass using just intonation
+3. **Changing Bass**: When the bass note releases and a new lowest note emerges, it becomes the new reference
+4. **Voice Allocation**: 8 voices with oldest-first voice stealing
+
+**Example (playing a C major triad):**
+- **C4** (bass) → 261.63 Hz (equal temperament reference)
+- **E4** → 261.63 × 5/4 = 327.03 Hz (major third)
+- **G4** → 261.63 × 3/2 = 392.44 Hz (perfect fifth)
+- Result: Perfect 4:5:6 ratio!
 
 ## Features
 
 - 🎵 **Pure Just Intonation**: Perfect harmonic intervals
 - 🎹 **MIDI Input**: Works with any MIDI keyboard or controller
+- 🎸 **Real-time Visualizer**: Guitar Hero-style note visualization showing tuning deviations
 - 🎚️ **Synth Controls**: 
   - Multiple waveforms (Sawtooth, Sine, Square, Triangle)
   - Full ADSR envelope control (Attack, Decay, Sustain, Release)
   - Resonant lowpass filter with envelope modulation
+  - Sustain pedal support (CC64)
   - Master volume control
 - 📊 **Real-time Display**: Shows current note, frequency, interval ratios, and reference note
 - 🔄 **Reset Reference**: Start fresh at any time
@@ -64,10 +94,16 @@ If you play:
 
 - **Melodic Playing**: Play single notes in sequence to hear how each interval relates to the previous note
 - **Experiment with Intervals**: Try different interval patterns and hear the pure ratios
+- **Watch the Visualizer**: See how notes deviate from equal temperament in real-time
+  - Center line = Equal temperament (0 cents)
+  - Left of center = Flat (negative cents)
+  - Right of center = Sharp (positive cents)
+  - Each note color-coded by pitch class
 - **Shape Your Sound**: 
   - Adjust the ADSR envelope for percussive (short attack/decay) or pad-like (long attack/release) sounds
   - Use the filter envelope to add movement and character to your notes
   - Increase resonance for a more "squelchy" analog sound
+- **Use the Sustain Pedal**: Hold chords and notes like a real piano
 - **Reset When Needed**: If notes drift too far from your desired pitch center, click "Reset Reference"
 - **Waveform Selection**: Different waveforms emphasize different harmonics
 

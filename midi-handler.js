@@ -4,9 +4,10 @@
  */
 
 export class MIDIHandler {
-  constructor(onNoteOn, onNoteOff) {
+  constructor(onNoteOn, onNoteOff, onSustainPedal) {
     this.onNoteOn = onNoteOn;
     this.onNoteOff = onNoteOff;
+    this.onSustainPedal = onSustainPedal || (() => {}); // Optional callback
     this.midiAccess = null;
     this.connectedDevices = [];
   }
@@ -80,7 +81,7 @@ export class MIDIHandler {
    * Handle incoming MIDI messages
    */
   handleMIDIMessage(message) {
-    const [status, note, velocity] = message.data;
+    const [status, data1, data2] = message.data;
     
     // Get the command (upper 4 bits) and channel (lower 4 bits)
     const command = status >> 4;
@@ -88,17 +89,39 @@ export class MIDIHandler {
     
     switch (command) {
       case 0x9: // Note On
-        if (velocity > 0) {
-          this.onNoteOn(note, velocity);
+        if (data2 > 0) {
+          this.onNoteOn(data1, data2);
         } else {
           // Velocity 0 is treated as note off
-          this.onNoteOff(note);
+          this.onNoteOff(data1);
         }
         break;
         
       case 0x8: // Note Off
-        this.onNoteOff(note);
+        this.onNoteOff(data1);
         break;
+        
+      case 0xB: // Control Change
+        this.handleControlChange(data1, data2);
+        break;
+    }
+  }
+
+  /**
+   * Handle MIDI Control Change messages
+   */
+  handleControlChange(controller, value) {
+    switch (controller) {
+      case 64: // Sustain Pedal (CC64)
+        const pedalDown = value >= 64;
+        this.onSustainPedal(pedalDown);
+        break;
+        
+      // Could add more controllers here:
+      // case 1: // Modulation wheel
+      // case 7: // Volume
+      // case 10: // Pan
+      // etc.
     }
   }
 

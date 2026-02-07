@@ -1,16 +1,17 @@
 {
   "name": "just-interval-monosynth",
   "version": "1.0.0",
-  "description": "A MIDI monosynth using just intonation based on the last played note",
-  "main": "index.html",
+  "description": "MIDI synthesizers using just intonation (monosynth and polysynth)",
+  "main": "start.html",
   "scripts": {
-    "start": "npx http-server -p 8080 -o"
+    "start": "npx http-server -p 8080 -o start.html"
   },
   "keywords": [
     "midi",
     "synth",
     "just-intonation",
-    "web-audio"
+    "web-audio",
+    "polysynth"
   ],
   "author": "",
   "license": "MIT",

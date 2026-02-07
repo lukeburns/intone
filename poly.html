@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Just Interval Monosynth</title>
+  <title>Just Interval PolySynth</title>
   <style>
     .back-link {
       position: absolute;
@@ -28,7 +28,7 @@
 
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
       min-height: 100vh;
       display: flex;
       justify-content: center;
@@ -48,7 +48,7 @@
 
     h1 {
       text-align: center;
-      color: #667eea;
+      color: #f5576c;
       margin-bottom: 10px;
       font-size: 2.5em;
     }
@@ -85,13 +85,13 @@
     }
 
     .status-value {
-      color: #667eea;
+      color: #f5576c;
       font-weight: 500;
       font-family: 'Courier New', monospace;
     }
 
     .interval-info {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
       color: white;
       border-radius: 10px;
       padding: 20px;
@@ -126,10 +126,10 @@
     .control-section-title {
       font-size: 1.1em;
       font-weight: 600;
-      color: #667eea;
+      color: #f5576c;
       margin: 20px 0 15px 0;
       padding-bottom: 8px;
-      border-bottom: 2px solid #e8eaf6;
+      border-bottom: 2px solid #ffe8eb;
     }
 
     .control-section-title:first-child {
@@ -160,7 +160,7 @@
 
     .control-input:focus {
       outline: none;
-      border-color: #667eea;
+      border-color: #f5576c;
     }
 
     input[type="range"] {
@@ -176,7 +176,7 @@
       width: 20px;
       height: 20px;
       border-radius: 50%;
-      background: #667eea;
+      background: #f5576c;
       cursor: pointer;
       margin-top: -6px;
     }
@@ -192,7 +192,7 @@
       width: 20px;
       height: 20px;
       border-radius: 50%;
-      background: #667eea;
+      background: #f5576c;
       cursor: pointer;
       border: none;
     }
@@ -210,7 +210,7 @@
       min-width: 60px;
       text-align: right;
       font-family: 'Courier New', monospace;
-      color: #667eea;
+      color: #f5576c;
       font-weight: 600;
     }
 
@@ -234,23 +234,23 @@
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
       color: white;
     }
 
     .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+      box-shadow: 0 10px 20px rgba(245, 87, 108, 0.3);
     }
 
     .btn-secondary {
       background: #f8f9fa;
-      color: #667eea;
-      border: 2px solid #667eea;
+      color: #f5576c;
+      border: 2px solid #f5576c;
     }
 
     .btn-secondary:hover {
-      background: #667eea;
+      background: #f5576c;
       color: white;
     }
 
@@ -286,7 +286,7 @@
     }
 
     .reference-note {
-      background: #e8eaf6;
+      background: #ffe8eb;
       padding: 15px;
       border-radius: 8px;
       margin-top: 20px;
@@ -295,7 +295,7 @@
     }
 
     .reference-note strong {
-      color: #667eea;
+      color: #f5576c;
     }
 
     .visualizer-section {
@@ -337,8 +337,8 @@
 <body>
   <a href="start.html" class="back-link">← Back</a>
   <div class="container">
-    <h1>🎹 Just Interval Monosynth</h1>
-    <p class="subtitle">Each note is tuned in perfect just intonation relative to the last played note</p>
+    <h1>🎹 Just Interval PolySynth</h1>
+    <p class="subtitle">Polyphonic synth with bass-driven just intonation tuning (8 voices)</p>
 
     <div id="errorMessage" class="error-message"></div>
 
@@ -348,27 +348,27 @@
     </div>
 
     <div class="interval-info" id="intervalInfo">
-      <div class="interval-title">Current Interval</div>
+      <div class="interval-title">Last Note Played</div>
       <div class="interval-name" id="intervalName">Connecting...</div>
       <div class="interval-details" id="intervalDetails">Initializing synth and MIDI...</div>
     </div>
 
     <div class="status-section">
       <div class="status-row">
-        <span class="status-label">Current Note</span>
-        <span class="status-value" id="currentNote">—</span>
+        <span class="status-label">Active Voices</span>
+        <span class="status-value" id="voiceCount">0</span>
       </div>
       <div class="status-row">
-        <span class="status-label">Current Frequency</span>
-        <span class="status-value" id="currentFreq">—</span>
+        <span class="status-label">Bass Note (Reference)</span>
+        <span class="status-value" id="bassNote">—</span>
       </div>
       <div class="status-row">
-        <span class="status-label">Reference Note</span>
-        <span class="status-value" id="referenceNote">—</span>
+        <span class="status-label">Bass Frequency</span>
+        <span class="status-value" id="bassFreq">—</span>
       </div>
       <div class="status-row">
-        <span class="status-label">Reference Frequency</span>
-        <span class="status-value" id="referenceFreq">—</span>
+        <span class="status-label">Playing Notes</span>
+        <span class="status-value" id="activeVoices">—</span>
       </div>
       <div class="status-row">
         <span class="status-label">Sustain Pedal</span>
@@ -388,6 +388,17 @@
           <option value="sine">Sine</option>
           <option value="square">Square</option>
           <option value="triangle">Triangle</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Bass Change Behavior
+        </label>
+        <select id="retuneMode" class="control-input">
+          <option value="static">Static - Notes keep their tuning</option>
+          <option value="smooth">Smooth - Glide to new tuning (200ms)</option>
+          <option value="instant">Instant - Snap to new tuning</option>
         </select>
       </div>
 
@@ -448,15 +459,15 @@
 
       <div class="control-group">
         <label class="control-label">
-          Master Volume: <span class="range-value" id="volumeValue">30%</span>
+          Master Volume: <span class="range-value" id="volumeValue">40%</span>
         </label>
-        <input type="range" id="volume" class="control-input" min="0" max="100" value="30" step="1">
+        <input type="range" id="volume" class="control-input" min="0" max="100" value="40" step="1">
       </div>
     </div>
 
     <div class="button-group">
       <button id="startBtn" class="btn-primary">Connecting...</button>
-      <button id="resetBtn" class="btn-secondary" disabled>Reset Reference</button>
+      <button id="resetBtn" class="btn-secondary" disabled>Stop All Voices</button>
     </div>
 
     <div class="midi-devices">
@@ -467,12 +478,20 @@
     </div>
 
     <div class="reference-note">
-      <strong>How it works:</strong> The first note you play uses standard equal temperament tuning. 
-      Each subsequent note is then tuned in perfect just intonation based on its interval from the 
-      previous note. This creates pure harmonic relationships between consecutive notes!
+      <strong>Bass-Driven Just Intonation:</strong> The lowest note you're currently playing becomes 
+      the "bass" or reference note. All other notes are tuned in perfect just intonation relative 
+      to this bass note. This creates harmonically pure chords where all intervals are simple 
+      frequency ratios!
+      <br><br>
+      <strong>Bass Change Behavior:</strong> When the bass note releases and a new lowest note becomes the bass:
+      <ul style="margin-top: 8px; margin-left: 20px;">
+        <li><strong>Static</strong> - Existing notes keep their original tuning (smooth, no glitches)</li>
+        <li><strong>Smooth</strong> - Notes glide to new tuning over 200ms (experimental, theremin-like)</li>
+        <li><strong>Instant</strong> - Notes snap immediately to new tuning (may sound glitchy)</li>
+      </ul>
     </div>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <script type="module" src="polyapp.js"></script>
 </body>
 </html>

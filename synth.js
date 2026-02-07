@@ -1,14 +1,16 @@
 import { JustIntervals } from './just-intervals.js';
+import { BaseSynth } from './base-synth.js';
 
 /**
- * Web Audio Synthesizer Engine
+ * Web Audio Synthesizer Engine (Monosynth)
  * Creates and manages audio synthesis with just intonation
+ * Each note references the last played note
  */
 
-export class Synth {
+export class Synth extends BaseSynth {
   constructor() {
-    this.audioContext = null;
-    this.masterGain = null;
+    super();
+    
     this.oscillator = null;
     this.gainEnvelope = null;
     this.filter = null;
@@ -19,24 +21,6 @@ export class Synth {
     this.lastPlayedFrequency = null;
     this.currentNote = null;
     this.currentFrequency = null;
-    
-    // Synth parameters
-    this.waveform = 'sawtooth';
-    
-    // ADSR Envelope parameters
-    this.attackTime = 0.02;      // Attack time in seconds
-    this.decayTime = 0.2;        // Decay time in seconds
-    this.sustainLevel = 0.7;     // Sustain level (0-1)
-    this.releaseTime = 0.3;      // Release time in seconds
-    
-    this.filterFrequency = 2000;
-    this.filterQ = 5;
-    
-    // Filter envelope parameters
-    this.filterEnvelopeAmount = 3000;  // Amount to modulate filter frequency
-    this.filterAttack = 0.01;
-    this.filterDecay = 0.3;
-    this.filterSustain = 0.3;
   }
 
   /**
@@ -175,7 +159,7 @@ export class Synth {
       
       // Stop and clean up after release
       this.oscillator.stop(now + this.releaseTime);
-      
+
       const oldOsc = this.oscillator;
       const oldGain = this.gainEnvelope;
       const oldFilter = this.filter;
@@ -201,11 +185,20 @@ export class Synth {
   }
 
   /**
+   * Implementation of BaseSynth abstract method for sustain pedal
+   */
+  _releaseNote(midiNote) {
+    // For monosynth, only release if it's the current note
+    if (this.currentNote === midiNote) {
+      this.noteOff();
+    }
+  }
+
+  /**
    * Set the waveform type
-   * @param {string} type - 'sine', 'square', 'sawtooth', 'triangle'
    */
   setWaveform(type) {
-    this.waveform = type;
+    super.setWaveform(type);
     if (this.oscillator) {
       this.oscillator.type = type;
     }
@@ -213,10 +206,9 @@ export class Synth {
 
   /**
    * Set the filter cutoff frequency
-   * @param {number} frequency - Frequency in Hz
    */
   setFilterFrequency(frequency) {
-    this.filterFrequency = frequency;
+    super.setFilterFrequency(frequency);
     if (this.filter) {
       this.filter.frequency.value = frequency;
     }
@@ -224,63 +216,12 @@ export class Synth {
 
   /**
    * Set the filter resonance
-   * @param {number} q - Q factor
    */
   setFilterQ(q) {
-    this.filterQ = q;
+    super.setFilterQ(q);
     if (this.filter) {
       this.filter.Q.value = q;
     }
-  }
-
-  /**
-   * Set the master volume
-   * @param {number} volume - Volume (0-1)
-   */
-  setVolume(volume) {
-    if (this.masterGain) {
-      this.masterGain.gain.value = volume;
-    }
-  }
-
-  /**
-   * Set the attack time
-   * @param {number} time - Attack time in seconds
-   */
-  setAttackTime(time) {
-    this.attackTime = time;
-  }
-
-  /**
-   * Set the decay time
-   * @param {number} time - Decay time in seconds
-   */
-  setDecayTime(time) {
-    this.decayTime = time;
-  }
-
-  /**
-   * Set the sustain level
-   * @param {number} level - Sustain level (0-1)
-   */
-  setSustainLevel(level) {
-    this.sustainLevel = level;
-  }
-
-  /**
-   * Set the release time
-   * @param {number} time - Release time in seconds
-   */
-  setReleaseTime(time) {
-    this.releaseTime = time;
-  }
-
-  /**
-   * Set the filter envelope amount
-   * @param {number} amount - Filter modulation amount in Hz
-   */
-  setFilterEnvelopeAmount(amount) {
-    this.filterEnvelopeAmount = amount;
   }
 
   /**

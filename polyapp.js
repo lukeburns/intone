@@ -1,33 +1,34 @@
-import { Synth } from './synth.js';
+import { PolySynth } from './polysynth.js';
 import { MIDIHandler } from './midi-handler.js';
 import { NoteVisualizer } from './visualizer.js';
 import { SettingsManager } from './settings-manager.js';
 
 /**
- * Main Application
+ * PolySynth Application
  */
 
-class App {
+class PolyApp {
   constructor() {
     this.synth = null;
     this.midiHandler = null;
     this.visualizer = null;
     this.isInitialized = false;
-    this.settingsManager = new SettingsManager('monosynth-settings');
+    this.settingsManager = new SettingsManager('polysynth-settings');
     
     // UI Elements
     this.elements = {
       startBtn: document.getElementById('startBtn'),
       resetBtn: document.getElementById('resetBtn'),
       errorMessage: document.getElementById('errorMessage'),
-      currentNote: document.getElementById('currentNote'),
-      currentFreq: document.getElementById('currentFreq'),
-      referenceNote: document.getElementById('referenceNote'),
-      referenceFreq: document.getElementById('referenceFreq'),
+      voiceCount: document.getElementById('voiceCount'),
+      bassNote: document.getElementById('bassNote'),
+      bassFreq: document.getElementById('bassFreq'),
+      activeVoices: document.getElementById('activeVoices'),
       sustainPedal: document.getElementById('sustainPedal'),
       intervalName: document.getElementById('intervalName'),
       intervalDetails: document.getElementById('intervalDetails'),
       waveform: document.getElementById('waveform'),
+      retuneMode: document.getElementById('retuneMode'),
       attack: document.getElementById('attack'),
       attackValue: document.getElementById('attackValue'),
       decay: document.getElementById('decay'),
@@ -55,10 +56,11 @@ class App {
    * Load settings from localStorage and apply to UI
    */
   loadSettings() {
-    const settings = this.settingsManager.loadSettings() || SettingsManager.getMonoDefaults();
+    const settings = this.settingsManager.loadSettings() || SettingsManager.getPolyDefaults();
     
     // Apply to UI
     this.elements.waveform.value = settings.waveform;
+    this.elements.retuneMode.value = settings.retuneMode;
     this.elements.attack.value = settings.attack;
     this.elements.attackValue.textContent = `${settings.attack} ms`;
     this.elements.decay.value = settings.decay;
@@ -83,6 +85,7 @@ class App {
   saveSettings() {
     const settings = {
       waveform: this.elements.waveform.value,
+      retuneMode: this.elements.retuneMode.value,
       attack: parseInt(this.elements.attack.value),
       decay: parseInt(this.elements.decay.value),
       sustain: parseInt(this.elements.sustain.value),
@@ -103,6 +106,14 @@ class App {
     this.elements.waveform.addEventListener('change', (e) => {
       if (this.synth) {
         this.synth.setWaveform(e.target.value);
+      }
+      this.saveSettings();
+    });
+    
+    // Retune mode control
+    this.elements.retuneMode.addEventListener('change', (e) => {
+      if (this.synth) {
+        this.synth.setRetuneMode(e.target.value);
       }
       this.saveSettings();
     });
@@ -192,13 +203,14 @@ class App {
       this.elements.startBtn.disabled = true;
       this.elements.startBtn.textContent = 'Initializing...';
       
-      // Initialize synth
-      this.synth = new Synth();
+      // Initialize synth (8 voices)
+      this.synth = new PolySynth(8);
       await this.synth.init();
       
       // Apply saved settings to synth
-      const settings = this.settingsManager.loadSettings() || SettingsManager.getMonoDefaults();
+      const settings = this.settingsManager.loadSettings() || SettingsManager.getPolyDefaults();
       this.synth.setWaveform(settings.waveform);
+      this.synth.setRetuneMode(settings.retuneMode);
       this.synth.setAttackTime(settings.attack / 1000);
       this.synth.setDecayTime(settings.decay / 1000);
       this.synth.setSustainLevel(settings.sustain / 100);
@@ -222,17 +234,17 @@ class App {
       
       // Update UI
       this.updateMIDIDeviceList();
-      this.elements.startBtn.textContent = '✓ Synth Ready';
+      this.elements.startBtn.textContent = '✓ PolySynth Ready';
       this.elements.startBtn.style.background = '#4caf50';
       this.elements.resetBtn.disabled = false;
       this.isInitialized = true;
       
-      this.showSuccess('Synth ready! Play notes on your MIDI controller.');
+      this.showSuccess('PolySynth ready! Play chords on your MIDI controller.');
       
     } catch (error) {
       this.showError(`Failed to initialize: ${error.message}`);
       this.elements.startBtn.disabled = false;
-      this.elements.startBtn.textContent = 'Start Synth';
+      this.elements.startBtn.textContent = 'Start PolySynth';
       console.error('Initialization error:', error);
       throw error;
     }
@@ -243,7 +255,6 @@ class App {
       try {
         await this.initialize();
       } catch (error) {
-        // If auto-init fails, user will need to click the button
         console.log('Auto-initialization blocked, waiting for user interaction');
       }
     }
@@ -257,8 +268,15 @@ class App {
       
       // Update visualizer
       if (this.visualizer) {
-        // In monosynth, the current note is always the reference
-        this.visualizer.noteOn(midiNote, noteInfo.frequency, true);
+        // If a voice was stolen, mark that note as inactive in the visualizer
+        if (noteInfo.stolenNote !== null && noteInfo.stolenNote !== undefined) {
+          this.visualizer.noteOff(noteInfo.stolenNote);
+        }
+        
+        // Check if this note is the bass (reference) note
+        const state = this.synth.getState();
+        const isReferenceNote = state.bassNote === midiNote;
+        this.visualizer.noteOn(midiNote, noteInfo.frequency, isReferenceNote);
       }
     }
   }
@@ -266,23 +284,43 @@ class App {
   async handleNoteOff(midiNote) {
     await this.ensureInitialized();
     if (this.synth) {
-      // Only trigger noteOff if this is the currently playing note
-      const state = this.synth.getState();
-      if (state.currentNote === midiNote) {
-        // Check if sustain pedal should hold the note
-        if (this.synth.handleNoteOffWithSustain(midiNote)) {
-          // Note is actually being released (not sustained)
-          
-          // Update visualizer
-          if (this.visualizer) {
-            this.visualizer.noteOff(midiNote);
-          }
-          
-          this.synth.noteOff();
+      // Check if sustain pedal should hold the note
+      if (this.synth.handleNoteOffWithSustain(midiNote)) {
+        // Note is actually being released (not sustained)
+        
+        // Update visualizer
+        if (this.visualizer) {
+          this.visualizer.noteOff(midiNote);
         }
-        // If sustain pedal is holding the note, do nothing - keep visualizer growing
+        
+        const retunedNotes = this.synth.noteOff(midiNote);
+        
+        // If notes were retuned (bass changed), update visualizer
+        if (retunedNotes && Array.isArray(retunedNotes) && this.visualizer) {
+          const isSmooth = this.synth.retuneMode === 'smooth';
+          const glideTime = this.synth.retuneSpeed || 0.2;
+          
+          retunedNotes.forEach(({ midiNote: retunedNote, newFrequency }) => {
+            this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
+          });
+          
+          // Update reference note if bass changed
+          const state = this.synth.getState();
+          if (state.bassNote !== null) {
+            const bassVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.bassNote);
+            if (bassVoice) {
+              this.visualizer.referenceFrequency = { 
+                frequency: bassVoice.frequency,
+                midiNote: state.bassNote,
+                timestamp: performance.now()
+              };
+            }
+          }
+        }
+        
+        this.updateUIAfterNoteOff();
       }
-      // Otherwise, ignore the note-off (it's for a note that was retriggered)
+      // If sustain pedal is holding the note, do nothing - keep visualizer growing
     }
   }
 
@@ -296,7 +334,7 @@ class App {
         // Get the notes that were being sustained before releasing the pedal
         const sustainedNotes = Array.from(this.synth.sustainedNotes);
         
-        this.synth.handleSustainPedalUp();
+        const retunedNotes = this.synth.handleSustainPedalUp();
         
         // Tell visualizer that sustained notes are now released
         if (this.visualizer) {
@@ -305,6 +343,30 @@ class App {
           });
         }
         
+        // If notes were retuned (bass changed), update visualizer
+        if (retunedNotes && Array.isArray(retunedNotes) && this.visualizer) {
+          const isSmooth = this.synth.retuneMode === 'smooth';
+          const glideTime = this.synth.retuneSpeed || 0.2;
+          
+          retunedNotes.forEach(({ midiNote: retunedNote, newFrequency }) => {
+            this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
+          });
+          
+          // Update reference note if bass changed
+          const state = this.synth.getState();
+          if (state.bassNote !== null) {
+            const bassVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.bassNote);
+            if (bassVoice) {
+              this.visualizer.referenceFrequency = { 
+                frequency: bassVoice.frequency,
+                midiNote: state.bassNote,
+                timestamp: performance.now()
+              };
+            }
+          }
+        }
+        
+        this.updateUIAfterNoteOff();
         this.elements.sustainPedal.textContent = 'UP';
         this.elements.sustainPedal.style.color = '';
       }
@@ -312,42 +374,78 @@ class App {
   }
 
   updateUI(noteInfo) {
-    // Update current note info
-    this.elements.currentNote.textContent = noteInfo.noteName;
-    this.elements.currentFreq.textContent = `${noteInfo.frequency.toFixed(2)} Hz`;
+    // Update voice count
+    this.elements.voiceCount.textContent = noteInfo.activeVoices;
     
-    // Update reference note info
+    // Update bass note info (always the reference)
     const state = this.synth.getState();
-    if (state.lastPlayedNote !== null) {
-      const lastNoteName = this.synth.justIntervals.getMidiNoteName(state.lastPlayedNote);
-      this.elements.referenceNote.textContent = lastNoteName;
-      this.elements.referenceFreq.textContent = `${state.lastPlayedFrequency.toFixed(2)} Hz`;
+    if (state.bassNote !== null) {
+      const bassNoteName = this.synth.justIntervals.getMidiNoteName(state.bassNote);
+      this.elements.bassNote.textContent = bassNoteName;
+      this.elements.bassFreq.textContent = `${state.bassFrequency.toFixed(2)} Hz`;
     } else {
-      this.elements.referenceNote.textContent = '—';
-      this.elements.referenceFreq.textContent = '—';
+      this.elements.bassNote.textContent = '—';
+      this.elements.bassFreq.textContent = '—';
+    }
+    
+    // Display active voices
+    if (state.activeNotes.length > 0) {
+      this.elements.activeVoices.textContent = state.activeNotes
+        .map(n => n.noteName)
+        .join(', ');
+    } else {
+      this.elements.activeVoices.textContent = '—';
     }
     
     // Update interval info
     if (noteInfo.intervalInfo) {
       const info = noteInfo.intervalInfo;
-      this.elements.intervalName.textContent = info.name;
+      this.elements.intervalName.textContent = `${noteInfo.noteName}: ${info.name}`;
       this.elements.intervalDetails.textContent = 
-        `Ratio ${info.ratio} from ${info.referenceNote} (${info.referenceFreq.toFixed(2)} Hz)`;
+        `Ratio ${info.ratio} from bass note ${info.referenceNote} (${info.referenceFreq.toFixed(2)} Hz)`;
     } else {
-      this.elements.intervalName.textContent = 'First Note (Reference)';
+      this.elements.intervalName.textContent = `${noteInfo.noteName} (Bass/First Note)`;
       this.elements.intervalDetails.textContent = 
-        `${noteInfo.noteName} at ${noteInfo.frequency.toFixed(2)} Hz — Equal Temperament`;
+        `${noteInfo.frequency.toFixed(2)} Hz — Equal Temperament (becomes bass reference)`;
+    }
+  }
+
+  updateUIAfterNoteOff() {
+    const state = this.synth.getState();
+    
+    // Update voice count
+    this.elements.voiceCount.textContent = state.activeVoiceCount;
+    
+    // Update bass note info
+    if (state.bassNote !== null) {
+      const bassNoteName = this.synth.justIntervals.getMidiNoteName(state.bassNote);
+      this.elements.bassNote.textContent = bassNoteName;
+      this.elements.bassFreq.textContent = `${state.bassFrequency.toFixed(2)} Hz`;
+    } else {
+      this.elements.bassNote.textContent = '—';
+      this.elements.bassFreq.textContent = '—';
+    }
+    
+    // Display active voices
+    if (state.activeNotes.length > 0) {
+      this.elements.activeVoices.textContent = state.activeNotes
+        .map(n => n.noteName)
+        .join(', ');
+    } else {
+      this.elements.activeVoices.textContent = '—';
     }
   }
 
   resetReference() {
     if (this.synth) {
       this.synth.resetReference();
-      this.elements.referenceNote.textContent = '—';
-      this.elements.referenceFreq.textContent = '—';
-      this.elements.intervalName.textContent = 'Reference Reset';
-      this.elements.intervalDetails.textContent = 'Next note will be the new reference';
-      this.showSuccess('Reference note reset. Next note will use equal temperament.');
+      this.elements.bassNote.textContent = '—';
+      this.elements.bassFreq.textContent = '—';
+      this.elements.activeVoices.textContent = '—';
+      this.elements.voiceCount.textContent = '0';
+      this.elements.intervalName.textContent = 'All Voices Stopped';
+      this.elements.intervalDetails.textContent = 'Next note will establish new bass reference';
+      this.showSuccess('All voices stopped. Next note will be the new bass reference.');
     }
     if (this.visualizer) {
       this.visualizer.clear();
@@ -380,7 +478,6 @@ class App {
   }
 
   showSuccess(message) {
-    // Use interval info area for success messages
     this.elements.intervalName.textContent = 'Ready!';
     this.elements.intervalDetails.textContent = message;
   }
@@ -388,16 +485,14 @@ class App {
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  const app = new App();
+  const app = new PolyApp();
   
   // Attempt to auto-initialize
-  // This may be blocked by browser autoplay policies, but will work in many cases
   app.initialize().catch(() => {
     console.log('Auto-start blocked by browser. Waiting for user interaction.');
-    // Reset button state for manual initialization
-    app.elements.startBtn.textContent = 'Click to Start Synth';
+    app.elements.startBtn.textContent = 'Click to Start PolySynth';
     app.elements.startBtn.disabled = false;
-    app.elements.intervalName.textContent = 'Click "Start Synth" to begin';
+    app.elements.intervalName.textContent = 'Click "Start PolySynth" to begin';
     app.elements.intervalDetails.textContent = 'Browser requires user interaction to start audio';
   });
 });
