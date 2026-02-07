@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Just Interval Monosynth</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      color: #333;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 800px;
+      width: 100%;
+    }
+
+    h1 {
+      text-align: center;
+      color: #667eea;
+      margin-bottom: 10px;
+      font-size: 2.5em;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 0.95em;
+    }
+
+    .status-section {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 30px;
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .status-row:last-child {
+      border-bottom: none;
+    }
+
+    .status-label {
+      font-weight: 600;
+      color: #555;
+    }
+
+    .status-value {
+      color: #667eea;
+      font-weight: 500;
+      font-family: 'Courier New', monospace;
+    }
+
+    .interval-info {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 30px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .interval-title {
+      font-size: 0.9em;
+      opacity: 0.9;
+      margin-bottom: 5px;
+    }
+
+    .interval-name {
+      font-size: 1.8em;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .interval-details {
+      font-size: 1.1em;
+      opacity: 0.95;
+    }
+
+    .controls-section {
+      margin-bottom: 30px;
+    }
+
+    .control-section-title {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: #667eea;
+      margin: 20px 0 15px 0;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e8eaf6;
+    }
+
+    .control-section-title:first-child {
+      margin-top: 0;
+    }
+
+    .control-group {
+      margin-bottom: 25px;
+    }
+
+    .control-label {
+      display: block;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 8px;
+      font-size: 0.95em;
+    }
+
+    .control-input {
+      width: 100%;
+      height: 40px;
+      border-radius: 8px;
+      border: 2px solid #e0e0e0;
+      padding: 0 15px;
+      font-size: 1em;
+      transition: border-color 0.3s;
+    }
+
+    .control-input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    input[type="range"] {
+      cursor: pointer;
+      height: 8px;
+      padding: 0;
+      background: transparent;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #667eea;
+      cursor: pointer;
+      margin-top: -6px;
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #667eea;
+      cursor: pointer;
+      border: none;
+    }
+
+    input[type="range"]::-moz-range-track {
+      width: 100%;
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      border: none;
+    }
+
+    .range-value {
+      display: inline-block;
+      min-width: 60px;
+      text-align: right;
+      font-family: 'Courier New', monospace;
+      color: #667eea;
+      font-weight: 600;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    button {
+      flex: 1;
+      padding: 15px 30px;
+      font-size: 1em;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn-secondary {
+      background: #f8f9fa;
+      color: #667eea;
+      border: 2px solid #667eea;
+    }
+
+    .btn-secondary:hover {
+      background: #667eea;
+      color: white;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .midi-devices {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 15px;
+      margin-top: 20px;
+    }
+
+    .midi-device {
+      padding: 8px 12px;
+      background: white;
+      border-radius: 6px;
+      margin-top: 8px;
+      font-size: 0.9em;
+      color: #555;
+    }
+
+    .error-message {
+      background: #ffebee;
+      color: #c62828;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .reference-note {
+      background: #e8eaf6;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 0.9em;
+      color: #555;
+    }
+
+    .reference-note strong {
+      color: #667eea;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 25px;
+      }
+
+      h1 {
+        font-size: 2em;
+      }
+
+      .button-group {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎹 Just Interval Monosynth</h1>
+    <p class="subtitle">Each note is tuned in perfect just intonation relative to the last played note</p>
+
+    <div id="errorMessage" class="error-message"></div>
+
+    <div class="interval-info" id="intervalInfo">
+      <div class="interval-title">Current Interval</div>
+      <div class="interval-name" id="intervalName">Connecting...</div>
+      <div class="interval-details" id="intervalDetails">Initializing synth and MIDI...</div>
+    </div>
+
+    <div class="status-section">
+      <div class="status-row">
+        <span class="status-label">Current Note</span>
+        <span class="status-value" id="currentNote">—</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Current Frequency</span>
+        <span class="status-value" id="currentFreq">—</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Reference Note</span>
+        <span class="status-value" id="referenceNote">—</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Reference Frequency</span>
+        <span class="status-value" id="referenceFreq">—</span>
+      </div>
+    </div>
+
+    <div class="controls-section">
+      <div class="control-section-title">Oscillator</div>
+      
+      <div class="control-group">
+        <label class="control-label">
+          Waveform
+        </label>
+        <select id="waveform" class="control-input">
+          <option value="sawtooth">Sawtooth</option>
+          <option value="sine">Sine</option>
+          <option value="square">Square</option>
+          <option value="triangle">Triangle</option>
+        </select>
+      </div>
+
+      <div class="control-section-title">Amplitude Envelope (ADSR)</div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Attack: <span class="range-value" id="attackValue">20 ms</span>
+        </label>
+        <input type="range" id="attack" class="control-input" min="1" max="1000" value="20" step="1">
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Decay: <span class="range-value" id="decayValue">200 ms</span>
+        </label>
+        <input type="range" id="decay" class="control-input" min="10" max="2000" value="200" step="10">
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Sustain: <span class="range-value" id="sustainValue">70%</span>
+        </label>
+        <input type="range" id="sustain" class="control-input" min="0" max="100" value="70" step="1">
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Release: <span class="range-value" id="releaseValue">300 ms</span>
+        </label>
+        <input type="range" id="release" class="control-input" min="10" max="3000" value="300" step="10">
+      </div>
+
+      <div class="control-section-title">Filter</div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Filter Cutoff: <span class="range-value" id="filterFreqValue">2000 Hz</span>
+        </label>
+        <input type="range" id="filterFreq" class="control-input" min="100" max="8000" value="2000" step="10">
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Filter Resonance: <span class="range-value" id="filterQValue">5.0</span>
+        </label>
+        <input type="range" id="filterQ" class="control-input" min="0.5" max="20" value="5" step="0.1">
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Filter Envelope: <span class="range-value" id="filterEnvValue">3000 Hz</span>
+        </label>
+        <input type="range" id="filterEnv" class="control-input" min="0" max="8000" value="3000" step="100">
+      </div>
+
+      <div class="control-section-title">Output</div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Master Volume: <span class="range-value" id="volumeValue">30%</span>
+        </label>
+        <input type="range" id="volume" class="control-input" min="0" max="100" value="30" step="1">
+      </div>
+    </div>
+
+    <div class="button-group">
+      <button id="startBtn" class="btn-primary">Connecting...</button>
+      <button id="resetBtn" class="btn-secondary" disabled>Reset Reference</button>
+    </div>
+
+    <div class="midi-devices">
+      <strong>Connected MIDI Devices:</strong>
+      <div id="midiDeviceList">
+        <div style="padding: 8px 0; color: #999;">No devices connected</div>
+      </div>
+    </div>
+
+    <div class="reference-note">
+      <strong>How it works:</strong> The first note you play uses standard equal temperament tuning. 
+      Each subsequent note is then tuned in perfect just intonation based on its interval from the 
+      previous note. This creates pure harmonic relationships between consecutive notes!
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

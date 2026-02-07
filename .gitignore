@@ -1,0 +1,6 @@
+# Just Interval Monosynth
+
+.DS_Store
+node_modules/
+*.log
+package-lock.json
