@@ -238,6 +238,10 @@ export class PolySynth extends BaseSynth {
     // Last audible bass (used as reference for next note)
     this.lastBassFrequency = null;
     this.lastBassMidiNote = null;
+    
+    // Reference mode and tracking
+    this.referenceMode = 'bass'; // 'bass' or 'random'
+    this.currentReferenceVoice = null; // For random mode: sticky reference
   }
 
   /**
@@ -272,6 +276,53 @@ export class PolySynth extends BaseSynth {
   }
 
   /**
+   * Get the reference voice based on current reference mode
+   * Returns the voice that other notes should tune relative to
+   */
+  getReferenceVoice() {
+    if (this.referenceMode === 'bass') {
+      return this.getLowestActiveVoice();
+    } else if (this.referenceMode === 'random') {
+      // If we have a current reference and it's still active, keep it
+      if (this.currentReferenceVoice && this.currentReferenceVoice.isActive) {
+        return this.currentReferenceVoice;
+      }
+      
+      // Otherwise, select a new random reference from active voices
+      const activeVoices = this.voices.filter(v => v.isActive);
+      if (activeVoices.length === 0) {
+        this.currentReferenceVoice = null;
+        return null;
+      }
+      
+      // Pick a random voice
+      const randomIndex = Math.floor(Math.random() * activeVoices.length);
+      this.currentReferenceVoice = activeVoices[randomIndex];
+      console.log(`Selected new random reference: ${this.justIntervals.getMidiNoteName(this.currentReferenceVoice.midiNote)}`);
+      return this.currentReferenceVoice;
+    }
+    
+    return this.getLowestActiveVoice(); // Fallback
+  }
+
+  /**
+   * Set reference mode: 'bass' (lowest note) or 'random' (random sticky note)
+   */
+  setReferenceMode(mode) {
+    if (mode !== 'bass' && mode !== 'random') {
+      console.warn(`Invalid reference mode: ${mode}. Using 'bass'.`);
+      mode = 'bass';
+    }
+    
+    this.referenceMode = mode;
+    
+    // Clear current reference when switching modes
+    this.currentReferenceVoice = null;
+    
+    console.log(`Reference mode set to: ${mode}`);
+  }
+
+  /**
    * Find an available voice or steal one
    * Returns { voice, stolenNote } where stolenNote is the midiNote that was stolen (if any)
    */
@@ -293,17 +344,17 @@ export class PolySynth extends BaseSynth {
   }
 
   /**
-   * Play a note using just intonation based on the bass (lowest) note
+   * Play a note using just intonation based on the reference note
    */
   noteOn(midiNote, velocity) {
-    // Get bass note for tuning reference
-    const bassVoice = this.getLowestActiveVoice();
+    // Get reference note for tuning
+    const referenceVoice = this.getReferenceVoice();
     
     let frequency;
     let intervalInfo = null;
     let usedStoredReference = false;
     
-    if (!bassVoice) {
+    if (!referenceVoice) {
       // First note: use stored reference if available, otherwise equal temperament
       if (this.lastBassFrequency !== null && this.lastBassMidiNote !== null) {
         usedStoredReference = true;
@@ -311,7 +362,7 @@ export class PolySynth extends BaseSynth {
         if (midiNote === this.lastBassMidiNote) {
           // Same note as stored reference, use it directly
           frequency = this.lastBassFrequency;
-          console.log(`First note (bass): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (from stored reference)`);
+          console.log(`First note (reference): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (from stored reference)`);
         } else {
           // Different note, calculate interval from stored reference
           const interval = midiNote - this.lastBassMidiNote;
@@ -323,7 +374,7 @@ export class PolySynth extends BaseSynth {
           
           const ratioString = this.justIntervals.getRatioString(interval);
           const intervalName = this.justIntervals.getIntervalName(interval);
-          console.log(`First note (bass): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (${intervalName} from stored reference)`);
+          console.log(`First note (reference): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (${intervalName} from stored reference)`);
           
           // Create interval info for UI
           intervalInfo = {
@@ -338,18 +389,18 @@ export class PolySynth extends BaseSynth {
       } else {
         // No previous reference, use equal temperament
         frequency = this.justIntervals.midiToFrequency(midiNote);
-        console.log(`First note (bass): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (equal temperament)`);
+        console.log(`First note (reference): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (equal temperament)`);
       }
       
-      // This becomes the new bass, store it
+      // This becomes the new reference, store it
       this.lastBassFrequency = frequency;
       this.lastBassMidiNote = midiNote;
     } else {
-      // Calculate just intonation based on the bass note
-      const interval = midiNote - bassVoice.midiNote;
+      // Calculate just intonation based on the reference note
+      const interval = midiNote - referenceVoice.midiNote;
       frequency = this.justIntervals.getJustFrequency(
-        bassVoice.frequency,
-        bassVoice.midiNote,
+        referenceVoice.frequency,
+        referenceVoice.midiNote,
         midiNote
       );
       
@@ -360,13 +411,13 @@ export class PolySynth extends BaseSynth {
         interval,
         ratio: ratioString,
         name: intervalName,
-        referenceMidi: bassVoice.midiNote,
-        referenceFreq: bassVoice.frequency,
-        referenceNote: this.justIntervals.getMidiNoteName(bassVoice.midiNote)
+        referenceMidi: referenceVoice.midiNote,
+        referenceFreq: referenceVoice.frequency,
+        referenceNote: this.justIntervals.getMidiNoteName(referenceVoice.midiNote)
       };
       
       console.log(`Playing ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz`);
-      console.log(`  Interval: ${intervalName} (${ratioString}) from bass note ${intervalInfo.referenceNote}`);
+      console.log(`  Interval: ${intervalName} (${ratioString}) from reference note ${intervalInfo.referenceNote} [${this.referenceMode} mode]`);
     }
     
     // Allocate and start voice
@@ -379,8 +430,8 @@ export class PolySynth extends BaseSynth {
       frequency, 
       velocity, 
       this.getVoiceParams(),
-      bassVoice ? bassVoice.midiNote : midiNote,
-      bassVoice ? bassVoice.frequency : frequency
+      referenceVoice ? referenceVoice.midiNote : midiNote,
+      referenceVoice ? referenceVoice.frequency : frequency
     );
     
     return {
@@ -405,65 +456,69 @@ export class PolySynth extends BaseSynth {
 
   /**
    * Implementation of BaseSynth abstract method for sustain pedal
-   * Returns information about retuned notes if bass changed
+   * Returns information about retuned notes if reference changed
    */
   _releaseNote(midiNote) {
     // Find all voices playing this note
     const voicesToRelease = this.voices.filter(v => v.isActive && v.midiNote === midiNote);
     
-    // Check if any of these voices are the current bass
-    const wasBass = voicesToRelease.some(v => {
-      const currentBass = this.getLowestActiveVoice();
-      return currentBass && v.midiNote === currentBass.midiNote;
+    // Get current reference BEFORE releasing
+    const currentReference = this.getReferenceVoice();
+    const wasReference = voicesToRelease.some(v => {
+      return currentReference && v.midiNote === currentReference.midiNote;
     });
     
-    // If releasing the bass, store its current audible frequency (with pitch bend)
-    if (wasBass) {
-      const bassFreq = this.getBassFrequencyWithBend();
-      const currentBass = this.getLowestActiveVoice();
-      if (bassFreq && currentBass) {
-        this.lastBassFrequency = bassFreq;
-        this.lastBassMidiNote = currentBass.midiNote;
-        console.log(`Storing last bass: ${this.justIntervals.getMidiNoteName(currentBass.midiNote)} at ${bassFreq.toFixed(2)} Hz`);
+    // If releasing the reference, store its current audible frequency (with pitch bend)
+    if (wasReference && currentReference) {
+      const refFreq = this.getReferenceFrequencyWithBend();
+      if (refFreq) {
+        this.lastBassFrequency = refFreq;
+        this.lastBassMidiNote = currentReference.midiNote;
+        console.log(`Storing last reference (${this.referenceMode} mode): ${this.justIntervals.getMidiNoteName(currentReference.midiNote)} at ${refFreq.toFixed(2)} Hz`);
       }
     }
     
-    // Mark voices as inactive FIRST (so getLowestActiveVoice works correctly)
+    // Mark voices as inactive FIRST (so getReferenceVoice works correctly)
     voicesToRelease.forEach(v => {
       v.isActive = false;
     });
     
+    // In random mode, clear the current reference if we just released it
+    if (this.referenceMode === 'random' && wasReference) {
+      this.currentReferenceVoice = null;
+    }
+    
     // Then apply release envelopes
     voicesToRelease.forEach(v => v.release(this.releaseTime));
     
-    // If bass changed and retune mode is enabled, retune remaining voices
-    if (wasBass && this.retuneMode !== 'static') {
-      return this.retuneToNewBass();
+    // If reference changed and retune mode is enabled, retune remaining voices
+    if (wasReference && this.retuneMode !== 'static') {
+      return this.retuneToNewReference();
     }
     
     return [];
   }
 
   /**
-   * Retune all active voices to the new bass note
+   * Retune all active voices to the new reference note
    * Returns array of {midiNote, newFrequency} for retuned notes
    */
-  retuneToNewBass() {
-    const newBass = this.getLowestActiveVoice();
-    if (!newBass) return [];
+  retuneToNewReference() {
+    const newReference = this.getReferenceVoice();
+    if (!newReference) return [];
     
-    console.log(`Bass changed to ${this.justIntervals.getMidiNoteName(newBass.midiNote)}, retuning voices in ${this.retuneMode} mode`);
+    console.log(`Reference changed to ${this.justIntervals.getMidiNoteName(newReference.midiNote)} (${this.referenceMode} mode), retuning voices in ${this.retuneMode} mode`);
     
     const retunedNotes = [];
     
     for (const voice of this.voices) {
-      if (!voice.isActive || voice.midiNote === newBass.midiNote) continue;
+      if (!voice.isActive || voice.midiNote === newReference.midiNote) continue;
       
-      // Calculate new frequency based on new bass
-      const interval = voice.midiNote - newBass.midiNote;
+      // Calculate new frequency based on new reference
+      const interval = voice.midiNote - newReference.midiNote;
       const newFrequency = this.justIntervals.getJustFrequency(
-        newBass.frequency,
-        newBass.midiNote,
+        newReference.frequency,
+        newReference.midiNote,
         voice.midiNote
       );
       
@@ -475,8 +530,8 @@ export class PolySynth extends BaseSynth {
       }
       
       // Update tuning tracking
-      voice.tunedToBassNote = newBass.midiNote;
-      voice.tunedToBassFreq = newBass.frequency;
+      voice.tunedToBassNote = newReference.midiNote;
+      voice.tunedToBassFreq = newReference.frequency;
       
       retunedNotes.push({ midiNote: voice.midiNote, newFrequency });
       
@@ -515,15 +570,15 @@ export class PolySynth extends BaseSynth {
   }
 
   /**
-   * Get bass frequency with pitch bend applied
+   * Get the reference frequency with pitch bend applied
    */
-  getBassFrequencyWithBend() {
-    const bassVoice = this.getLowestActiveVoice();
-    if (!bassVoice) return null;
+  getReferenceFrequencyWithBend() {
+    const referenceVoice = this.getReferenceVoice();
+    if (!referenceVoice) return null;
     
     const centsOffset = this.pitchBendAmount * this.pitchBendRange;
     const bendRatio = Math.pow(2, centsOffset / 1200);
-    return bassVoice.frequency * bendRatio;
+    return referenceVoice.frequency * bendRatio;
   }
 
   /**
@@ -534,6 +589,7 @@ export class PolySynth extends BaseSynth {
     this.pitchBendAmount = 0; // Reset pitch bend
     this.lastBassFrequency = null; // Clear stored reference
     this.lastBassMidiNote = null;
+    this.currentReferenceVoice = null; // Clear random mode reference
     console.log('All voices stopped');
   }
 
@@ -542,7 +598,8 @@ export class PolySynth extends BaseSynth {
    */
   getState() {
     const activeVoices = this.voices.filter(v => v.isActive);
-    const bassVoice = this.getLowestActiveVoice();
+    const referenceVoice = this.getReferenceVoice();
+    const bassVoice = this.getLowestActiveVoice(); // Keep for backwards compat
     
     return {
       activeVoiceCount: activeVoices.length,
@@ -552,8 +609,11 @@ export class PolySynth extends BaseSynth {
         frequency: v.frequency,
         noteName: this.justIntervals.getMidiNoteName(v.midiNote)
       })),
-      bassNote: bassVoice ? bassVoice.midiNote : null,
-      bassFrequency: bassVoice ? bassVoice.frequency : null,
+      referenceMode: this.referenceMode,
+      referenceNote: referenceVoice ? referenceVoice.midiNote : null,
+      referenceFrequency: referenceVoice ? referenceVoice.frequency : null,
+      bassNote: bassVoice ? bassVoice.midiNote : null, // Backwards compat
+      bassFrequency: bassVoice ? bassVoice.frequency : null, // Backwards compat
       waveform: this.waveform,
       filterFrequency: this.filterFrequency,
       filterQ: this.filterQ

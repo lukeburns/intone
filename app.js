@@ -44,7 +44,10 @@ class App {
       filterEnvValue: document.getElementById('filterEnvValue'),
       volume: document.getElementById('volume'),
       volumeValue: document.getElementById('volumeValue'),
-      midiDeviceList: document.getElementById('midiDeviceList')
+      midiDeviceList: document.getElementById('midiDeviceList'),
+      visualizerSection: document.getElementById('visualizerSection'),
+      fullscreenBtn: document.getElementById('fullscreenBtn'),
+      fullscreenIcon: document.getElementById('fullscreenIcon')
     };
     
     this.setupEventListeners();
@@ -98,6 +101,15 @@ class App {
   setupEventListeners() {
     this.elements.startBtn.addEventListener('click', () => this.initialize());
     this.elements.resetBtn.addEventListener('click', () => this.resetReference());
+    
+    // Fullscreen control
+    this.elements.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+    
+    // Listen for fullscreen changes to update button text
+    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('mozfullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('MSFullscreenChange', () => this.updateFullscreenButton());
     
     // Waveform control
     this.elements.waveform.addEventListener('change', (e) => {
@@ -389,6 +401,68 @@ class App {
     // Use interval info area for success messages
     this.elements.intervalName.textContent = 'Ready!';
     this.elements.intervalDetails.textContent = message;
+  }
+
+  /**
+   * Toggle fullscreen mode for visualizer
+   */
+  toggleFullscreen() {
+    const elem = this.elements.visualizerSection;
+    
+    if (!document.fullscreenElement && 
+        !document.webkitFullscreenElement && 
+        !document.mozFullScreenElement &&
+        !document.msFullscreenElement) {
+      // Enter fullscreen
+      if (elem.requestFullscreen) {
+        elem.requestFullscreen();
+      } else if (elem.webkitRequestFullscreen) { // Safari
+        elem.webkitRequestFullscreen();
+      } else if (elem.mozRequestFullScreen) { // Firefox
+        elem.mozRequestFullScreen();
+      } else if (elem.msRequestFullscreen) { // IE/Edge
+        elem.msRequestFullscreen();
+      }
+    } else {
+      // Exit fullscreen
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      } else if (document.mozCancelFullScreen) {
+        document.mozCancelFullScreen();
+      } else if (document.msExitFullscreen) {
+        document.msExitFullscreen();
+      }
+    }
+  }
+
+  /**
+   * Update fullscreen button icon based on state
+   */
+  updateFullscreenButton() {
+    const isFullscreen = document.fullscreenElement || 
+                        document.webkitFullscreenElement || 
+                        document.mozFullScreenElement ||
+                        document.msFullscreenElement;
+    
+    // Update icon (⛶ for both states, could use different icons if desired)
+    this.elements.fullscreenIcon.textContent = isFullscreen ? '⛶' : '⛶';
+    
+    // Update tooltip
+    this.elements.fullscreenBtn.title = isFullscreen ? 'Exit Fullscreen (ESC)' : 'Toggle Fullscreen';
+    
+    // Trigger canvas resize if visualizer exists
+    if (this.visualizer) {
+      // Give the browser a moment to update the layout
+      setTimeout(() => {
+        if (this.visualizer.canvas) {
+          this.visualizer.canvas.width = this.visualizer.canvas.offsetWidth * window.devicePixelRatio;
+          this.visualizer.canvas.height = this.visualizer.canvas.offsetHeight * window.devicePixelRatio;
+          this.visualizer.draw();
+        }
+      }, 100);
+    }
   }
 }
 

@@ -28,6 +28,7 @@ class PolyApp {
       intervalName: document.getElementById('intervalName'),
       intervalDetails: document.getElementById('intervalDetails'),
       waveform: document.getElementById('waveform'),
+      referenceMode: document.getElementById('referenceMode'),
       retuneMode: document.getElementById('retuneMode'),
       attack: document.getElementById('attack'),
       attackValue: document.getElementById('attackValue'),
@@ -45,7 +46,10 @@ class PolyApp {
       filterEnvValue: document.getElementById('filterEnvValue'),
       volume: document.getElementById('volume'),
       volumeValue: document.getElementById('volumeValue'),
-      midiDeviceList: document.getElementById('midiDeviceList')
+      midiDeviceList: document.getElementById('midiDeviceList'),
+      visualizerSection: document.getElementById('visualizerSection'),
+      fullscreenBtn: document.getElementById('fullscreenBtn'),
+      fullscreenIcon: document.getElementById('fullscreenIcon')
     };
     
     this.setupEventListeners();
@@ -60,6 +64,7 @@ class PolyApp {
     
     // Apply to UI
     this.elements.waveform.value = settings.waveform;
+    this.elements.referenceMode.value = settings.referenceMode || 'bass';
     this.elements.retuneMode.value = settings.retuneMode;
     this.elements.attack.value = settings.attack;
     this.elements.attackValue.textContent = `${settings.attack} ms`;
@@ -85,6 +90,7 @@ class PolyApp {
   saveSettings() {
     const settings = {
       waveform: this.elements.waveform.value,
+      referenceMode: this.elements.referenceMode.value,
       retuneMode: this.elements.retuneMode.value,
       attack: parseInt(this.elements.attack.value),
       decay: parseInt(this.elements.decay.value),
@@ -102,10 +108,27 @@ class PolyApp {
     this.elements.startBtn.addEventListener('click', () => this.initialize());
     this.elements.resetBtn.addEventListener('click', () => this.resetReference());
     
+    // Fullscreen control
+    this.elements.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+    
+    // Listen for fullscreen changes to update button text
+    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('mozfullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('MSFullscreenChange', () => this.updateFullscreenButton());
+    
     // Waveform control
     this.elements.waveform.addEventListener('change', (e) => {
       if (this.synth) {
         this.synth.setWaveform(e.target.value);
+      }
+      this.saveSettings();
+    });
+    
+    // Reference mode control
+    this.elements.referenceMode.addEventListener('change', (e) => {
+      if (this.synth) {
+        this.synth.setReferenceMode(e.target.value);
       }
       this.saveSettings();
     });
@@ -210,6 +233,7 @@ class PolyApp {
       // Apply saved settings to synth
       const settings = this.settingsManager.loadSettings() || SettingsManager.getPolyDefaults();
       this.synth.setWaveform(settings.waveform);
+      this.synth.setReferenceMode(settings.referenceMode || 'bass');
       this.synth.setRetuneMode(settings.retuneMode);
       this.synth.setAttackTime(settings.attack / 1000);
       this.synth.setDecayTime(settings.decay / 1000);
@@ -274,18 +298,18 @@ class PolyApp {
           this.visualizer.noteOff(noteInfo.stolenNote);
         }
         
-        // Check if this note is the bass (reference) note
+        // Check if this note is the reference note
         const state = this.synth.getState();
-        const isReferenceNote = state.bassNote === midiNote;
+        const isReferenceNote = state.referenceNote === midiNote;
         this.visualizer.noteOn(midiNote, noteInfo.frequency, isReferenceNote);
         
-        // Update reference frequency to match current bass
-        if (state.bassNote !== null) {
-          const bassVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.bassNote);
-          if (bassVoice) {
+        // Update reference frequency to match current reference
+        if (state.referenceNote !== null) {
+          const refVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.referenceNote);
+          if (refVoice) {
             this.visualizer.referenceFrequency = { 
-              frequency: bassVoice.frequency,
-              midiNote: state.bassNote,
+              frequency: refVoice.frequency,
+              midiNote: state.referenceNote,
               timestamp: performance.now()
             };
           }
@@ -308,7 +332,7 @@ class PolyApp {
         
         const retunedNotes = this.synth.noteOff(midiNote);
         
-        // If notes were retuned (bass changed), update visualizer
+        // If notes were retuned (reference changed), update visualizer
         if (retunedNotes && Array.isArray(retunedNotes) && this.visualizer) {
           const isSmooth = this.synth.retuneMode === 'smooth';
           const glideTime = this.synth.retuneSpeed || 0.2;
@@ -317,14 +341,14 @@ class PolyApp {
             this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
           });
           
-          // Update reference note if bass changed
+          // Update reference note if it changed
           const state = this.synth.getState();
-          if (state.bassNote !== null) {
-            const bassVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.bassNote);
-            if (bassVoice) {
+          if (state.referenceNote !== null) {
+            const refVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.referenceNote);
+            if (refVoice) {
               this.visualizer.referenceFrequency = { 
-                frequency: bassVoice.frequency,
-                midiNote: state.bassNote,
+                frequency: refVoice.frequency,
+                midiNote: state.referenceNote,
                 timestamp: performance.now()
               };
             }
@@ -356,7 +380,7 @@ class PolyApp {
           });
         }
         
-        // If notes were retuned (bass changed), update visualizer
+        // If notes were retuned (reference changed), update visualizer
         if (retunedNotes && Array.isArray(retunedNotes) && this.visualizer) {
           const isSmooth = this.synth.retuneMode === 'smooth';
           const glideTime = this.synth.retuneSpeed || 0.2;
@@ -365,14 +389,14 @@ class PolyApp {
             this.visualizer.updateNoteTuning(retunedNote, newFrequency, isSmooth, glideTime);
           });
           
-          // Update reference note if bass changed
+          // Update reference note if it changed
           const state = this.synth.getState();
-          if (state.bassNote !== null) {
-            const bassVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.bassNote);
-            if (bassVoice) {
+          if (state.referenceNote !== null) {
+            const refVoice = this.synth.voices.find(v => v.isActive && v.midiNote === state.referenceNote);
+            if (refVoice) {
               this.visualizer.referenceFrequency = { 
-                frequency: bassVoice.frequency,
-                midiNote: state.bassNote,
+                frequency: refVoice.frequency,
+                midiNote: state.referenceNote,
                 timestamp: performance.now()
               };
             }
@@ -390,14 +414,14 @@ class PolyApp {
     if (this.synth) {
       this.synth.applyPitchBend(amount);
       
-      // Update visualizer reference frequency with bent bass
+      // Update visualizer reference frequency with bent reference
       if (this.visualizer) {
-        const bentFreq = this.synth.getBassFrequencyWithBend();
+        const bentFreq = this.synth.getReferenceFrequencyWithBend();
         if (bentFreq) {
           const state = this.synth.getState();
           this.visualizer.referenceFrequency = {
             frequency: bentFreq,
-            midiNote: state.bassNote,
+            midiNote: state.referenceNote,
             timestamp: performance.now()
           };
         }
@@ -409,12 +433,13 @@ class PolyApp {
     // Update voice count
     this.elements.voiceCount.textContent = noteInfo.activeVoices;
     
-    // Update bass note info (always the reference)
+    // Update reference note info
     const state = this.synth.getState();
-    if (state.bassNote !== null) {
-      const bassNoteName = this.synth.justIntervals.getMidiNoteName(state.bassNote);
-      this.elements.bassNote.textContent = bassNoteName;
-      this.elements.bassFreq.textContent = `${state.bassFrequency.toFixed(2)} Hz`;
+    if (state.referenceNote !== null) {
+      const refNoteName = this.synth.justIntervals.getMidiNoteName(state.referenceNote);
+      const modeLabel = state.referenceMode === 'random' ? ' (random)' : ' (bass)';
+      this.elements.bassNote.textContent = refNoteName + modeLabel;
+      this.elements.bassFreq.textContent = `${state.referenceFrequency.toFixed(2)} Hz`;
     } else {
       this.elements.bassNote.textContent = '—';
       this.elements.bassFreq.textContent = '—';
@@ -434,15 +459,15 @@ class PolyApp {
       const info = noteInfo.intervalInfo;
       this.elements.intervalName.textContent = `${noteInfo.noteName}: ${info.name}`;
       this.elements.intervalDetails.textContent = 
-        `Ratio ${info.ratio} from bass note ${info.referenceNote} (${info.referenceFreq.toFixed(2)} Hz)`;
+        `Ratio ${info.ratio} from reference note ${info.referenceNote} (${info.referenceFreq.toFixed(2)} Hz)`;
     } else {
-      this.elements.intervalName.textContent = `${noteInfo.noteName} (Bass/First Note)`;
+      this.elements.intervalName.textContent = `${noteInfo.noteName} (Reference/First Note)`;
       if (noteInfo.usedStoredReference) {
         this.elements.intervalDetails.textContent = 
-          `${noteInfo.frequency.toFixed(2)} Hz — From stored reference (detuned bass)`;
+          `${noteInfo.frequency.toFixed(2)} Hz — From stored reference (detuned)`;
       } else {
         this.elements.intervalDetails.textContent = 
-          `${noteInfo.frequency.toFixed(2)} Hz — Equal Temperament (becomes bass reference)`;
+          `${noteInfo.frequency.toFixed(2)} Hz — Equal Temperament (becomes reference)`;
       }
     }
   }
@@ -453,11 +478,12 @@ class PolyApp {
     // Update voice count
     this.elements.voiceCount.textContent = state.activeVoiceCount;
     
-    // Update bass note info
-    if (state.bassNote !== null) {
-      const bassNoteName = this.synth.justIntervals.getMidiNoteName(state.bassNote);
-      this.elements.bassNote.textContent = bassNoteName;
-      this.elements.bassFreq.textContent = `${state.bassFrequency.toFixed(2)} Hz`;
+    // Update reference note info
+    if (state.referenceNote !== null) {
+      const refNoteName = this.synth.justIntervals.getMidiNoteName(state.referenceNote);
+      const modeLabel = state.referenceMode === 'random' ? ' (random)' : ' (bass)';
+      this.elements.bassNote.textContent = refNoteName + modeLabel;
+      this.elements.bassFreq.textContent = `${state.referenceFrequency.toFixed(2)} Hz`;
     } else {
       this.elements.bassNote.textContent = '—';
       this.elements.bassFreq.textContent = '—';
@@ -517,6 +543,68 @@ class PolyApp {
   showSuccess(message) {
     this.elements.intervalName.textContent = 'Ready!';
     this.elements.intervalDetails.textContent = message;
+  }
+
+  /**
+   * Toggle fullscreen mode for visualizer
+   */
+  toggleFullscreen() {
+    const elem = this.elements.visualizerSection;
+    
+    if (!document.fullscreenElement && 
+        !document.webkitFullscreenElement && 
+        !document.mozFullScreenElement &&
+        !document.msFullscreenElement) {
+      // Enter fullscreen
+      if (elem.requestFullscreen) {
+        elem.requestFullscreen();
+      } else if (elem.webkitRequestFullscreen) { // Safari
+        elem.webkitRequestFullscreen();
+      } else if (elem.mozRequestFullScreen) { // Firefox
+        elem.mozRequestFullScreen();
+      } else if (elem.msRequestFullscreen) { // IE/Edge
+        elem.msRequestFullscreen();
+      }
+    } else {
+      // Exit fullscreen
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      } else if (document.mozCancelFullScreen) {
+        document.mozCancelFullScreen();
+      } else if (document.msExitFullscreen) {
+        document.msExitFullscreen();
+      }
+    }
+  }
+
+  /**
+   * Update fullscreen button icon based on state
+   */
+  updateFullscreenButton() {
+    const isFullscreen = document.fullscreenElement || 
+                        document.webkitFullscreenElement || 
+                        document.mozFullScreenElement ||
+                        document.msFullscreenElement;
+    
+    // Update icon (⛶ for both states, could use different icons if desired)
+    this.elements.fullscreenIcon.textContent = isFullscreen ? '⛶' : '⛶';
+    
+    // Update tooltip
+    this.elements.fullscreenBtn.title = isFullscreen ? 'Exit Fullscreen (ESC)' : 'Toggle Fullscreen';
+    
+    // Trigger canvas resize if visualizer exists
+    if (this.visualizer) {
+      // Give the browser a moment to update the layout
+      setTimeout(() => {
+        if (this.visualizer.canvas) {
+          this.visualizer.canvas.width = this.visualizer.canvas.offsetWidth * window.devicePixelRatio;
+          this.visualizer.canvas.height = this.visualizer.canvas.offsetHeight * window.devicePixelRatio;
+          this.visualizer.draw();
+        }
+      }, 100);
+    }
   }
 }
 

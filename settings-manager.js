@@ -72,6 +72,8 @@ export class SettingsManager {
   static getPolyDefaults() {
     return {
       waveform: 'sawtooth',
+      referenceMode: 'bass',
+      retuneMode: 'static',
       attack: 20,
       decay: 200,
       sustain: 70,
@@ -79,8 +81,7 @@ export class SettingsManager {
       filterFreq: 2000,
       filterQ: 5,
       filterEnv: 3000,
-      volume: 40,
-      retuneMode: 'static'
+      volume: 40
     };
   }
 }
