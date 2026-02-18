@@ -105,9 +105,9 @@ class PolyApp {
    * Update visibility of split tuning controls based on split mode
    */
   updateSplitTuningVisibility() {
-    const isIndependent = this.elements.splitMode.value === 'independent';
-    this.elements.leftTuningGroup.style.display = isIndependent ? 'block' : 'none';
-    this.elements.rightTuningGroup.style.display = isIndependent ? 'block' : 'none';
+    const isSplit = this.elements.splitMode.value !== 'off';
+    this.elements.leftTuningGroup.style.display = isSplit ? 'block' : 'none';
+    this.elements.rightTuningGroup.style.display = isSplit ? 'block' : 'none';
   }
 
   /**

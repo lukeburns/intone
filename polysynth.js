@@ -337,8 +337,8 @@ export class PolySynth extends BaseSynth {
     // Split keyboard mode
     this.splitMode = 'off'; // 'off', 'independent', 'shared'
     this.splitPoint = 67; // MIDI note 66 = F#4 (midpoint of C2-C7 range)
-    this.leftKeyboardTranspose = 12; // Transpose left keyboard down by 1 octave
-    this.rightKeyboardTranspose = 12; // Transpose right keyboard down by this many semitones (1 octave)
+    this.leftKeyboardTranspose = -12; // Transpose left keyboard UP by 1 octave (negative = subtract less)
+    this.rightKeyboardTranspose = 12; // Transpose right keyboard DOWN by 1 octave
     
     // Stored references for each side in split mode
     this.leftLastReferenceFrequency = null;
@@ -566,31 +566,31 @@ export class PolySynth extends BaseSynth {
 
   /**
    * Map incoming MIDI note to virtual note for split keyboard mode
-   * In independent mode, both keyboards are transposed to overlap
+   * In split modes, both keyboards are transposed to overlap
    */
   mapMidiNoteForSplit(midiNote) {
-    if (this.splitMode === 'independent') {
+    if (this.splitMode !== 'off') {
       if (midiNote <= this.splitPoint) {
         // Left keyboard: transpose down
-        return midiNote + this.leftKeyboardTranspose;
+        return midiNote - this.leftKeyboardTranspose;
       } else {
         // Right keyboard: transpose down
         return midiNote - this.rightKeyboardTranspose;
       }
     }
-    return midiNote; // Non-split mode: no transposition
+    return midiNote; // Normal mode: no transposition
   }
 
   /**
    * Get the appropriate JustIntervals instance for a given MIDI note
-   * In split mode with different tunings, returns left or right instance
+   * In split modes with different tunings, returns left or right instance
    */
   getJustIntervalsForNote(midiNote) {
-    if (this.splitMode === 'independent' && midiNote !== null) {
+    if (this.splitMode !== 'off' && midiNote !== null) {
       const isLeftHand = midiNote <= this.splitPoint;
       return isLeftHand ? this.leftJustIntervals : this.rightJustIntervals;
     }
-    // Normal mode or shared mode: use the main instance
+    // Normal mode: use the main instance
     return this.justIntervals;
   }
 
@@ -778,13 +778,15 @@ export class PolySynth extends BaseSynth {
     if (wasReference && currentReference) {
       const refFreq = this.getReferenceFrequencyWithBend();
       if (refFreq) {
-        // Store globally
-        this.lastBassFrequency = refFreq;
-        this.lastBassMidiNote = currentReference.midiNote;
-        
-        // Also store in side-specific variables for split mode (use VIRTUAL notes!)
-        const isLeftHand = currentReference.midiNote <= this.splitPoint;
+        // Map to virtual note for correct storage
         const virtualRefNote = this.mapMidiNoteForSplit(currentReference.midiNote);
+        
+        // Store globally (use virtual note for split modes)
+        this.lastBassFrequency = refFreq;
+        this.lastBassMidiNote = virtualRefNote;
+        
+        // Also store in side-specific variables for split mode
+        const isLeftHand = currentReference.midiNote <= this.splitPoint;
         if (isLeftHand) {
           this.leftLastReferenceFrequency = refFreq;
           this.leftLastReferenceMidiNote = virtualRefNote;
