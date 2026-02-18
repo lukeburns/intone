@@ -283,6 +283,18 @@
       color: #f5576c;
     }
 
+    kbd {
+      display: inline-block;
+      padding: 3px 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+      color: #333;
+      background: #f8f9fa;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
     .visualizer-section {
       background: #1a1a2e;
       border-radius: 10px;
@@ -485,6 +497,56 @@
         </select>
       </div>
 
+      <div class="control-group">
+        <label class="control-label">
+          Tuning System
+        </label>
+        <select id="tuningSystem" class="control-input">
+          <option value="equal">Equal Temperament</option>
+          <option value="5-limit">5-Limit (Classical)</option>
+          <option value="7-limit">7-Limit (Blues/Jazz)</option>
+          <option value="pythagorean">Pythagorean (Medieval)</option>
+          <option value="harmonic">Harmonic Series</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label class="control-label">
+          Split Keyboard Mode
+        </label>
+        <select id="splitMode" class="control-input">
+          <option value="off">Off - Single reference</option>
+          <option value="independent">Split - Independent references</option>
+          <option value="shared">Split - Shared reference</option>
+        </select>
+      </div>
+
+      <div class="control-group" id="leftTuningGroup" style="display: none;">
+        <label class="control-label">
+          Left Keyboard Tuning (≤F#4)
+        </label>
+        <select id="leftTuningSystem" class="control-input">
+          <option value="equal">Equal Temperament</option>
+          <option value="5-limit">5-Limit (Classical)</option>
+          <option value="7-limit">7-Limit (Blues/Jazz)</option>
+          <option value="pythagorean">Pythagorean (Medieval)</option>
+          <option value="harmonic">Harmonic Series</option>
+        </select>
+      </div>
+
+      <div class="control-group" id="rightTuningGroup" style="display: none;">
+        <label class="control-label">
+          Right Keyboard Tuning (>F#4)
+        </label>
+        <select id="rightTuningSystem" class="control-input">
+          <option value="equal">Equal Temperament</option>
+          <option value="5-limit">5-Limit (Classical)</option>
+          <option value="7-limit">7-Limit (Blues/Jazz)</option>
+          <option value="pythagorean">Pythagorean (Medieval)</option>
+          <option value="harmonic">Harmonic Series</option>
+        </select>
+      </div>
+
       <div class="control-section-title">Amplitude Envelope (ADSR)</div>
 
       <div class="control-group">
@@ -596,7 +658,28 @@
         <li><strong>Smooth</strong> - Notes glide to new tuning over 200ms (experimental, theremin-like)</li>
         <li><strong>Instant</strong> - Notes snap immediately to new tuning (may sound glitchy)</li>
       </ul>
-      <p style="margin-top: 10px;">All intervals are tuned as simple frequency ratios for harmonically pure chords!</p>
+      <p style="margin-top: 10px;">
+        <strong>Tuning Systems:</strong>
+      </p>
+      <ul style="margin: 5px 0 0 20px; line-height: 1.6;">
+        <li><strong>Equal Temperament</strong> - Standard 12-tone equal temperament. Reference for comparison!</li>
+        <li><strong>5-Limit (Classical)</strong> - Pure major/minor harmonies using 2, 3, 5. Traditional just intonation.</li>
+        <li><strong>7-Limit (Blues/Jazz)</strong> - Adds 7th harmonic. Natural seventh (7:4) is 31¢ flatter than equal temperament - very bluesy!</li>
+        <li><strong>Pythagorean (Medieval)</strong> - Built from stacking perfect fifths. Sharp major thirds (81:64 vs 5:4), ancient sound.</li>
+        <li><strong>Harmonic Series</strong> - Uses pure harmonics (11th harmonic tritone is 51¢ sharp!). Experimental and alien.</li>
+      </ul>
+      <p style="margin-top: 10px;">
+        <strong>Split Keyboard Mode:</strong>
+      </p>
+      <ul style="margin: 5px 0 0 20px; line-height: 1.6;">
+        <li><strong>Off</strong> - Normal mode: all notes share one reference</li>
+        <li><strong>Independent</strong> - Split at F#4. Both keyboards transpose to same range! Left transposes down 1 octave, right transposes down 1 octave. Separate references and tuning systems. Play the same notes at different tunings!</li>
+        <li><strong>Shared</strong> - Both sides locked to the lowest note across both. No transposition - natural pitch ranges.</li>
+      </ul>
+      <p style="margin-top: 10px;">
+        <strong>💡 Tip:</strong> Press <kbd>W</kbd> or <kbd>D</kbd> to cycle through tuning systems while playing notes - hear them morph in real-time!
+      </p>
+      <p style="margin-top: 10px;">Experience pure harmonic ratios and compare with equal temperament!</p>
     </div>
   </div>
 

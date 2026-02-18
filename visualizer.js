@@ -17,10 +17,11 @@ import { JustIntervals } from './just-intervals.js';
  */
 
 export class NoteVisualizer {
-  constructor(canvasId) {
+  constructor(canvasId, justIntervalsInstance = null) {
     this.canvas = document.getElementById(canvasId);
     this.ctx = this.canvas.getContext('2d');
-    this.justIntervals = new JustIntervals();
+    // Use provided instance or create new one
+    this.justIntervals = justIntervalsInstance || new JustIntervals();
     
     // Time window configuration (in seconds)
     this.timeWindow = 8; // Show last 8 seconds
@@ -131,8 +132,9 @@ export class NoteVisualizer {
     const idealFreq = this.justIntervals.getJustFrequency(refFreq, refMidi, noteMidi);
     
     // Calculate how far the actual frequency is from the ideal ratio
-    // (This should be nearly 0 for our synth, but captures micro-variations)
-    const centsFromPureRatio = 1200 * Math.log2(noteFreq / idealFreq);
+    // Positive cents = sharp (right, red), Negative cents = flat (left, green)
+    // Note: We negate this so higher frequency = right/red
+    const centsFromPureRatio = -1200 * Math.log2(noteFreq / idealFreq);
     
     const ratio = noteFreq / refFreq;
     

@@ -318,6 +318,10 @@ export class PolySynth extends BaseSynth {
     
     this.justIntervals = new JustIntervals();
     
+    // Separate tuning systems for split keyboard mode
+    this.leftJustIntervals = new JustIntervals();
+    this.rightJustIntervals = new JustIntervals();
+    
     // Voice pool
     this.maxVoices = polyphony;
     this.voices = [];
@@ -330,9 +334,21 @@ export class PolySynth extends BaseSynth {
     this.lastBassFrequency = null;
     this.lastBassMidiNote = null;
     
+    // Split keyboard mode
+    this.splitMode = 'off'; // 'off', 'independent', 'shared'
+    this.splitPoint = 67; // MIDI note 66 = F#4 (midpoint of C2-C7 range)
+    this.leftKeyboardTranspose = 12; // Transpose left keyboard down by 1 octave
+    this.rightKeyboardTranspose = 12; // Transpose right keyboard down by this many semitones (1 octave)
+    
+    // Stored references for each side in split mode
+    this.leftLastReferenceFrequency = null;
+    this.leftLastReferenceMidiNote = null;
+    this.rightLastReferenceFrequency = null;
+    this.rightLastReferenceMidiNote = null;
+    
     // Reference mode and tracking
-    this.referenceMode = 'bass'; // 'bass' or 'random'
-    this.currentReferenceVoice = null; // For random mode: sticky reference
+    this.referenceMode = 'bass'; // 'bass', 'random', or 'harmonic'
+    this.currentReferenceVoice = null; // For random/harmonic mode: sticky reference
     
     // Stereo spread settings
     this.stereoSpread = 0; // 0.0 to 1.0
@@ -372,9 +388,24 @@ export class PolySynth extends BaseSynth {
 
   /**
    * Get the reference voice based on current reference mode
+   * @param {number} forMidiNote - Optional: which MIDI note we're getting reference for (split mode)
    * Returns the voice that other notes should tune relative to
    */
-  getReferenceVoice() {
+  getReferenceVoice(forMidiNote = null) {
+    // Handle split keyboard mode
+    if (this.splitMode !== 'off' && forMidiNote !== null) {
+      const isLeftHand = forMidiNote <= this.splitPoint;
+      
+      if (this.splitMode === 'independent') {
+        // Independent references for left and right hands
+        return this.getReferenceForSide(isLeftHand);
+      } else if (this.splitMode === 'shared') {
+        // Shared reference: use the absolute lowest note
+        return this.getLowestActiveVoice();
+      }
+    }
+    
+    // Normal mode (no split)
     if (this.referenceMode === 'bass') {
       return this.getLowestActiveVoice();
     } else if (this.referenceMode === 'random') {
@@ -411,6 +442,23 @@ export class PolySynth extends BaseSynth {
     }
     
     return this.getLowestActiveVoice(); // Fallback
+  }
+
+  /**
+   * Get reference for left or right side of split keyboard
+   */
+  getReferenceForSide(isLeftHand) {
+    const activeVoices = this.voices.filter(v => v.isActive);
+    const sideVoices = activeVoices.filter(v => 
+      isLeftHand ? v.midiNote <= this.splitPoint : v.midiNote > this.splitPoint
+    );
+    
+    if (sideVoices.length === 0) return null;
+    
+    // Use bass mode for each side
+    return sideVoices.reduce((lowest, v) => 
+      v.midiNote < lowest.midiNote ? v : lowest
+    );
   }
 
   /**
@@ -517,93 +565,157 @@ export class PolySynth extends BaseSynth {
   }
 
   /**
+   * Map incoming MIDI note to virtual note for split keyboard mode
+   * In independent mode, both keyboards are transposed to overlap
+   */
+  mapMidiNoteForSplit(midiNote) {
+    if (this.splitMode === 'independent') {
+      if (midiNote <= this.splitPoint) {
+        // Left keyboard: transpose down
+        return midiNote + this.leftKeyboardTranspose;
+      } else {
+        // Right keyboard: transpose down
+        return midiNote - this.rightKeyboardTranspose;
+      }
+    }
+    return midiNote; // Non-split mode: no transposition
+  }
+
+  /**
+   * Get the appropriate JustIntervals instance for a given MIDI note
+   * In split mode with different tunings, returns left or right instance
+   */
+  getJustIntervalsForNote(midiNote) {
+    if (this.splitMode === 'independent' && midiNote !== null) {
+      const isLeftHand = midiNote <= this.splitPoint;
+      return isLeftHand ? this.leftJustIntervals : this.rightJustIntervals;
+    }
+    // Normal mode or shared mode: use the main instance
+    return this.justIntervals;
+  }
+
+  /**
    * Play a note using just intonation based on the reference note
    */
   noteOn(midiNote, velocity) {
-    // Get reference note for tuning
-    const referenceVoice = this.getReferenceVoice();
+    // Map the note for split keyboard mode (actual MIDI note stays the same for tracking)
+    const virtualNote = this.mapMidiNoteForSplit(midiNote);
+    
+    // Get reference note for tuning (pass original midiNote for split detection)
+    const referenceVoice = this.getReferenceVoice(midiNote);
     
     let frequency;
     let intervalInfo = null;
     let usedStoredReference = false;
     
+    // Determine if this is left or right hand (needed in multiple places)
+    const isLeftHand = midiNote <= this.splitPoint;
+    
+    // Get the appropriate JustIntervals instance for this note
+    const justIntervals = this.getJustIntervalsForNote(midiNote);
+    
     if (!referenceVoice) {
-      // First note: use stored reference if available, otherwise equal temperament
-      if (this.lastBassFrequency !== null && this.lastBassMidiNote !== null) {
+      // First note (or first on this side in split mode): use stored reference if available
+      
+      // Determine which stored reference to use based on split mode
+      let storedFreq, storedMidi;
+      if (this.splitMode === 'independent') {
+        // Use side-specific stored reference
+        storedFreq = isLeftHand ? this.leftLastReferenceFrequency : this.rightLastReferenceFrequency;
+        storedMidi = isLeftHand ? this.leftLastReferenceMidiNote : this.rightLastReferenceMidiNote;
+      } else {
+        // Use global stored reference
+        storedFreq = this.lastBassFrequency;
+        storedMidi = this.lastBassMidiNote;
+      }
+      
+      if (storedFreq !== null && storedMidi !== null) {
         usedStoredReference = true;
         // Calculate frequency based on interval from stored reference
-        if (midiNote === this.lastBassMidiNote) {
+        if (virtualNote === storedMidi) {
           // Same note as stored reference, use it directly
-          frequency = this.lastBassFrequency;
-          console.log(`First note (reference): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (from stored reference)`);
+          frequency = storedFreq;
+          console.log(`First note (reference): ${justIntervals.getMidiNoteName(virtualNote)} at ${frequency.toFixed(2)} Hz (from stored reference)`);
         } else {
           // Different note, calculate interval from stored reference
-          const interval = midiNote - this.lastBassMidiNote;
-          frequency = this.justIntervals.getJustFrequency(
-            this.lastBassFrequency,
-            this.lastBassMidiNote,
-            midiNote
+          const interval = virtualNote - storedMidi;
+          frequency = justIntervals.getJustFrequency(
+            storedFreq,
+            storedMidi,
+            virtualNote
           );
           
-          const ratioString = this.justIntervals.getRatioString(interval);
-          const intervalName = this.justIntervals.getIntervalName(interval);
-          console.log(`First note (reference): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (${intervalName} from stored reference)`);
+          const ratioString = justIntervals.getRatioString(interval);
+          const intervalName = justIntervals.getIntervalName(interval);
+          console.log(`First note (reference): ${justIntervals.getMidiNoteName(virtualNote)} at ${frequency.toFixed(2)} Hz (${intervalName} from stored reference)`);
           
           // Create interval info for UI
           intervalInfo = {
             interval,
             ratio: ratioString,
             name: intervalName,
-            referenceMidi: this.lastBassMidiNote,
-            referenceFreq: this.lastBassFrequency,
-            referenceNote: this.justIntervals.getMidiNoteName(this.lastBassMidiNote)
+            referenceMidi: storedMidi,
+            referenceFreq: storedFreq,
+            referenceNote: justIntervals.getMidiNoteName(storedMidi)
           };
         }
       } else {
         // No previous reference, use equal temperament
-        frequency = this.justIntervals.midiToFrequency(midiNote);
-        console.log(`First note (reference): ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz (equal temperament)`);
+        frequency = justIntervals.midiToFrequency(virtualNote);
+        console.log(`First note (reference): ${justIntervals.getMidiNoteName(virtualNote)} at ${frequency.toFixed(2)} Hz (equal temperament)`);
       }
       
-      // This becomes the new reference, store it
+      // This becomes the new reference, store it (both global and side-specific)
+      // Store the VIRTUAL note (transposed) as the reference
       this.lastBassFrequency = frequency;
-      this.lastBassMidiNote = midiNote;
+      this.lastBassMidiNote = virtualNote;
+      
+      // Also store in the appropriate side-specific variable for split mode
+      if (isLeftHand) {
+        this.leftLastReferenceFrequency = frequency;
+        this.leftLastReferenceMidiNote = virtualNote;
+      } else {
+        this.rightLastReferenceFrequency = frequency;
+        this.rightLastReferenceMidiNote = virtualNote;
+      }
     } else {
       // Calculate just intonation based on the reference note
-      const interval = midiNote - referenceVoice.midiNote;
-      frequency = this.justIntervals.getJustFrequency(
+      // Need to get the virtual note for the reference as well (in case it's on the right keyboard)
+      const referenceVirtualNote = this.mapMidiNoteForSplit(referenceVoice.midiNote);
+      const interval = virtualNote - referenceVirtualNote;
+      frequency = justIntervals.getJustFrequency(
         referenceVoice.frequency,
-        referenceVoice.midiNote,
-        midiNote
+        referenceVirtualNote,
+        virtualNote
       );
       
-      const ratioString = this.justIntervals.getRatioString(interval);
-      const intervalName = this.justIntervals.getIntervalName(interval);
+      const ratioString = justIntervals.getRatioString(interval);
+      const intervalName = justIntervals.getIntervalName(interval);
       
       intervalInfo = {
         interval,
         ratio: ratioString,
         name: intervalName,
-        referenceMidi: referenceVoice.midiNote,
+        referenceMidi: referenceVirtualNote,
         referenceFreq: referenceVoice.frequency,
-        referenceNote: this.justIntervals.getMidiNoteName(referenceVoice.midiNote)
+        referenceNote: justIntervals.getMidiNoteName(referenceVirtualNote)
       };
       
-      console.log(`Playing ${this.justIntervals.getMidiNoteName(midiNote)} at ${frequency.toFixed(2)} Hz`);
+      console.log(`Playing ${justIntervals.getMidiNoteName(virtualNote)} at ${frequency.toFixed(2)} Hz`);
       console.log(`  Interval: ${intervalName} (${ratioString}) from reference note ${intervalInfo.referenceNote} [${this.referenceMode} mode]`);
     }
     
-    // Allocate and start voice
+    // Allocate and start voice (use ORIGINAL midiNote for tracking)
     const allocation = this.allocateVoice(midiNote);
     const voice = allocation.voice;
     const stolenNote = allocation.stolenNote;
     
     voice.start(
-      midiNote, 
+      midiNote, // Keep original for tracking
       frequency, 
       velocity, 
       this.getVoiceParams(),
-      referenceVoice ? referenceVoice.midiNote : midiNote,
+      referenceVoice ? this.mapMidiNoteForSplit(referenceVoice.midiNote) : virtualNote,
       referenceVoice ? referenceVoice.frequency : frequency
     );
     
@@ -666,9 +778,22 @@ export class PolySynth extends BaseSynth {
     if (wasReference && currentReference) {
       const refFreq = this.getReferenceFrequencyWithBend();
       if (refFreq) {
+        // Store globally
         this.lastBassFrequency = refFreq;
         this.lastBassMidiNote = currentReference.midiNote;
-        console.log(`Storing last reference (${this.referenceMode} mode): ${this.justIntervals.getMidiNoteName(currentReference.midiNote)} at ${refFreq.toFixed(2)} Hz`);
+        
+        // Also store in side-specific variables for split mode (use VIRTUAL notes!)
+        const isLeftHand = currentReference.midiNote <= this.splitPoint;
+        const virtualRefNote = this.mapMidiNoteForSplit(currentReference.midiNote);
+        if (isLeftHand) {
+          this.leftLastReferenceFrequency = refFreq;
+          this.leftLastReferenceMidiNote = virtualRefNote;
+        } else {
+          this.rightLastReferenceFrequency = refFreq;
+          this.rightLastReferenceMidiNote = virtualRefNote;
+        }
+        
+        console.log(`Storing last reference (${this.referenceMode} mode): ${this.justIntervals.getMidiNoteName(virtualRefNote)} at ${refFreq.toFixed(2)} Hz`);
       }
     }
     
@@ -698,22 +823,28 @@ export class PolySynth extends BaseSynth {
    * Returns array of {midiNote, newFrequency} for retuned notes
    */
   retuneToNewReference() {
-    const newReference = this.getReferenceVoice();
-    if (!newReference) return [];
-    
-    console.log(`Reference changed to ${this.justIntervals.getMidiNoteName(newReference.midiNote)} (${this.referenceMode} mode), retuning voices in ${this.retuneMode} mode`);
-    
     const retunedNotes = [];
     
     for (const voice of this.voices) {
-      if (!voice.isActive || voice.midiNote === newReference.midiNote) continue;
+      if (!voice.isActive) continue;
       
-      // Calculate new frequency based on new reference
-      const interval = voice.midiNote - newReference.midiNote;
-      const newFrequency = this.justIntervals.getJustFrequency(
+      // Get the appropriate reference for this voice (handles split mode)
+      const newReference = this.getReferenceVoice(voice.midiNote);
+      if (!newReference || voice.midiNote === newReference.midiNote) continue;
+      
+      // Map to virtual notes for frequency calculation
+      const voiceVirtualNote = this.mapMidiNoteForSplit(voice.midiNote);
+      const refVirtualNote = this.mapMidiNoteForSplit(newReference.midiNote);
+      
+      // Get the appropriate JustIntervals for this voice
+      const justIntervals = this.getJustIntervalsForNote(voice.midiNote);
+      
+      // Calculate new frequency based on new reference (using virtual notes)
+      const interval = voiceVirtualNote - refVirtualNote;
+      const newFrequency = justIntervals.getJustFrequency(
         newReference.frequency,
-        newReference.midiNote,
-        voice.midiNote
+        refVirtualNote,
+        voiceVirtualNote
       );
       
       // Retune the voice
@@ -723,13 +854,20 @@ export class PolySynth extends BaseSynth {
         voice.retune(newFrequency, 'smooth', this.retuneSpeed);
       }
       
-      // Update tuning tracking
-      voice.tunedToBassNote = newReference.midiNote;
+      // Update tuning tracking (use virtual notes)
+      voice.tunedToBassNote = refVirtualNote;
       voice.tunedToBassFreq = newReference.frequency;
       
       retunedNotes.push({ midiNote: voice.midiNote, newFrequency });
       
-      console.log(`  Retuned ${this.justIntervals.getMidiNoteName(voice.midiNote)} to ${newFrequency.toFixed(2)} Hz`);
+      console.log(`  Retuned ${justIntervals.getMidiNoteName(voiceVirtualNote)} to ${newFrequency.toFixed(2)} Hz`);
+    }
+    
+    if (retunedNotes.length > 0 && this.splitMode === 'off') {
+      const newReference = this.getReferenceVoice();
+      if (newReference) {
+        console.log(`Reference changed to ${this.justIntervals.getMidiNoteName(newReference.midiNote)} (${this.referenceMode} mode), retuning voices in ${this.retuneMode} mode`);
+      }
     }
     
     return retunedNotes;
@@ -776,6 +914,26 @@ export class PolySynth extends BaseSynth {
   }
 
   /**
+   * Set split keyboard mode
+   * @param {string} mode - 'off', 'independent', or 'shared'
+   */
+  setSplitMode(mode) {
+    this.splitMode = mode;
+    console.log(`Split keyboard mode: ${mode}`);
+    
+    // Update panning for all voices based on new mode
+    this.updateAllVoicePanning();
+    
+    // If switching to split mode, may need to retune voices
+    if (mode !== 'off') {
+      const activeVoices = this.voices.filter(v => v.isActive);
+      if (activeVoices.length > 0) {
+        this.retuneToNewReference(null); // Retune based on new split references
+      }
+    }
+  }
+
+  /**
    * Get the reference frequency with pitch bend applied
    */
   getReferenceFrequencyWithBend() {
@@ -804,9 +962,31 @@ export class PolySynth extends BaseSynth {
   }
 
   /**
+   * Set tuning system for left keyboard
+   */
+  setLeftTuningSystem(systemName) {
+    this.leftJustIntervals.setTuningSystem(systemName);
+    console.log(`Left keyboard tuning system: ${systemName}`);
+  }
+
+  /**
+   * Set tuning system for right keyboard
+   */
+  setRightTuningSystem(systemName) {
+    this.rightJustIntervals.setTuningSystem(systemName);
+    console.log(`Right keyboard tuning system: ${systemName}`);
+  }
+
+  /**
    * Calculate pan position for a voice based on spread mode
    */
   calculatePanPosition(voice, voiceIndex) {
+    // Split mode overrides normal panning - hard left/right
+    if (this.splitMode !== 'off') {
+      const isLeftHand = voice.midiNote <= this.splitPoint;
+      return isLeftHand ? -1 : 1; // Hard left for left hand, hard right for right hand
+    }
+    
     if (this.stereoSpread === 0) return 0;
     
     const activeVoices = this.voices.filter(v => v.isActive);
@@ -871,8 +1051,15 @@ export class PolySynth extends BaseSynth {
   resetReference() {
     this.voices.forEach(v => v.stop());
     this.pitchBendAmount = 0; // Reset pitch bend
-    this.lastBassFrequency = null; // Clear stored reference
+    
+    // Clear all stored references
+    this.lastBassFrequency = null;
     this.lastBassMidiNote = null;
+    this.leftLastReferenceFrequency = null;
+    this.leftLastReferenceMidiNote = null;
+    this.rightLastReferenceFrequency = null;
+    this.rightLastReferenceMidiNote = null;
+    
     this.currentReferenceVoice = null; // Clear random mode reference
     console.log('All voices stopped');
   }
@@ -894,7 +1081,7 @@ export class PolySynth extends BaseSynth {
         noteName: this.justIntervals.getMidiNoteName(v.midiNote)
       })),
       referenceMode: this.referenceMode,
-      referenceNote: referenceVoice ? referenceVoice.midiNote : null,
+      referenceNote: referenceVoice ? this.mapMidiNoteForSplit(referenceVoice.midiNote) : null,
       referenceFrequency: referenceVoice ? referenceVoice.frequency : null,
       bassNote: bassVoice ? bassVoice.midiNote : null, // Backwards compat
       bassFrequency: bassVoice ? bassVoice.frequency : null, // Backwards compat

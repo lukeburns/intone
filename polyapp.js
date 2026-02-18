@@ -30,6 +30,12 @@ class PolyApp {
       waveform: document.getElementById('waveform'),
       referenceMode: document.getElementById('referenceMode'),
       retuneMode: document.getElementById('retuneMode'),
+      tuningSystem: document.getElementById('tuningSystem'),
+      splitMode: document.getElementById('splitMode'),
+      leftTuningSystem: document.getElementById('leftTuningSystem'),
+      rightTuningSystem: document.getElementById('rightTuningSystem'),
+      leftTuningGroup: document.getElementById('leftTuningGroup'),
+      rightTuningGroup: document.getElementById('rightTuningGroup'),
       attack: document.getElementById('attack'),
       attackValue: document.getElementById('attackValue'),
       decay: document.getElementById('decay'),
@@ -69,6 +75,7 @@ class PolyApp {
     this.elements.waveform.value = settings.waveform;
     this.elements.referenceMode.value = settings.referenceMode || 'bass';
     this.elements.retuneMode.value = settings.retuneMode;
+    this.elements.tuningSystem.value = settings.tuningSystem || '5-limit';
     this.elements.attack.value = settings.attack;
     this.elements.attackValue.textContent = `${settings.attack} ms`;
     this.elements.decay.value = settings.decay;
@@ -88,6 +95,19 @@ class PolyApp {
     this.elements.stereoSpread.value = settings.stereoSpread || 0;
     this.elements.stereoSpreadValue.textContent = `${settings.stereoSpread || 0}%`;
     this.elements.spreadMode.value = settings.spreadMode || 'linear';
+    this.elements.splitMode.value = settings.splitMode || 'off';
+    this.elements.leftTuningSystem.value = settings.leftTuningSystem || '5-limit';
+    this.elements.rightTuningSystem.value = settings.rightTuningSystem || '5-limit';
+    this.updateSplitTuningVisibility();
+  }
+
+  /**
+   * Update visibility of split tuning controls based on split mode
+   */
+  updateSplitTuningVisibility() {
+    const isIndependent = this.elements.splitMode.value === 'independent';
+    this.elements.leftTuningGroup.style.display = isIndependent ? 'block' : 'none';
+    this.elements.rightTuningGroup.style.display = isIndependent ? 'block' : 'none';
   }
 
   /**
@@ -98,6 +118,10 @@ class PolyApp {
       waveform: this.elements.waveform.value,
       referenceMode: this.elements.referenceMode.value,
       retuneMode: this.elements.retuneMode.value,
+      tuningSystem: this.elements.tuningSystem.value,
+      splitMode: this.elements.splitMode.value,
+      leftTuningSystem: this.elements.leftTuningSystem.value,
+      rightTuningSystem: this.elements.rightTuningSystem.value,
       attack: parseInt(this.elements.attack.value),
       decay: parseInt(this.elements.decay.value),
       sustain: parseInt(this.elements.sustain.value),
@@ -125,6 +149,20 @@ class PolyApp {
     document.addEventListener('mozfullscreenchange', () => this.updateFullscreenButton());
     document.addEventListener('MSFullscreenChange', () => this.updateFullscreenButton());
     
+    // Keyboard shortcuts for tuning system cycling
+    document.addEventListener('keydown', (e) => {
+      // Only handle if not typing in an input/select
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      if (e.key === 'w' || e.key === 'W') {
+        this.cycleTuningSystem(1); // Forward
+      } else if (e.key === 'd' || e.key === 'D') {
+        this.cycleTuningSystem(-1); // Backward
+      }
+    });
+    
     // Waveform control
     this.elements.waveform.addEventListener('change', (e) => {
       if (this.synth) {
@@ -145,6 +183,39 @@ class PolyApp {
     this.elements.retuneMode.addEventListener('change', (e) => {
       if (this.synth) {
         this.synth.setRetuneMode(e.target.value);
+      }
+      this.saveSettings();
+    });
+    
+    // Tuning system control
+    this.elements.tuningSystem.addEventListener('change', (e) => {
+      if (this.synth) {
+        this.changeTuningSystem(e.target.value);
+      }
+      this.saveSettings();
+    });
+    
+    // Split keyboard mode control
+    this.elements.splitMode.addEventListener('change', (e) => {
+      if (this.synth) {
+        this.synth.setSplitMode(e.target.value);
+      }
+      this.updateSplitTuningVisibility();
+      this.saveSettings();
+    });
+    
+    // Left keyboard tuning system
+    this.elements.leftTuningSystem.addEventListener('change', (e) => {
+      if (this.synth) {
+        this.synth.setLeftTuningSystem(e.target.value);
+      }
+      this.saveSettings();
+    });
+    
+    // Right keyboard tuning system
+    this.elements.rightTuningSystem.addEventListener('change', (e) => {
+      if (this.synth) {
+        this.synth.setRightTuningSystem(e.target.value);
       }
       this.saveSettings();
     });
@@ -261,6 +332,9 @@ class PolyApp {
       this.synth.setWaveform(settings.waveform);
       this.synth.setReferenceMode(settings.referenceMode || 'bass');
       this.synth.setRetuneMode(settings.retuneMode);
+      this.synth.justIntervals.setTuningSystem(settings.tuningSystem || '5-limit');
+      this.synth.leftJustIntervals.setTuningSystem(settings.leftTuningSystem || '5-limit');
+      this.synth.rightJustIntervals.setTuningSystem(settings.rightTuningSystem || '5-limit');
       this.synth.setAttackTime(settings.attack / 1000);
       this.synth.setDecayTime(settings.decay / 1000);
       this.synth.setSustainLevel(settings.sustain / 100);
@@ -271,9 +345,10 @@ class PolyApp {
       this.synth.setVolume(settings.volume / 100);
       this.synth.setStereoSpread((settings.stereoSpread || 0) / 100);
       this.synth.setSpreadMode(settings.spreadMode || 'linear');
+      this.synth.setSplitMode(settings.splitMode || 'off');
       
-      // Initialize visualizer
-      this.visualizer = new NoteVisualizer('noteCanvas');
+      // Initialize visualizer (pass synth's justIntervals so it uses same tuning system)
+      this.visualizer = new NoteVisualizer('noteCanvas', this.synth.justIntervals);
       
       // Initialize MIDI
       this.midiHandler = new MIDIHandler(
@@ -628,6 +703,70 @@ class PolyApp {
   showSuccess(message) {
     this.elements.intervalName.textContent = 'Ready!';
     this.elements.intervalDetails.textContent = message;
+  }
+
+  /**
+   * Cycle through tuning systems
+   * @param {number} direction - 1 for forward, -1 for backward
+   */
+  cycleTuningSystem(direction) {
+    if (!this.synth) return;
+    
+    const systems = ['equal', '5-limit', '7-limit', 'pythagorean', 'harmonic'];
+    const currentIndex = systems.indexOf(this.elements.tuningSystem.value);
+    const newIndex = (currentIndex + direction + systems.length) % systems.length;
+    const newSystem = systems[newIndex];
+    
+    this.elements.tuningSystem.value = newSystem;
+    this.changeTuningSystem(newSystem);
+    this.saveSettings();
+  }
+
+  /**
+   * Change tuning system and retune all active notes
+   */
+  changeTuningSystem(systemName) {
+    if (!this.synth) return;
+    
+    // Change the tuning system
+    this.synth.justIntervals.setTuningSystem(systemName);
+    
+    // Get system info for display
+    const systemInfo = this.synth.justIntervals.tuningSystems[systemName];
+    console.log(`Tuning system: ${systemInfo.name}`);
+    
+    // Retune all active voices to the new system
+    const referenceVoice = this.synth.getReferenceVoice();
+    if (!referenceVoice) return; // No notes playing
+    
+    const activeVoices = this.synth.voices.filter(v => v.isActive);
+    const isSmooth = this.synth.retuneMode === 'smooth';
+    const glideTime = this.synth.retuneSpeed || 0.2;
+    
+    activeVoices.forEach(voice => {
+      if (voice === referenceVoice) return; // Reference stays the same
+      
+      // Recalculate frequency using new tuning system
+      const newFreq = this.synth.justIntervals.getJustFrequency(
+        referenceVoice.frequency,
+        referenceVoice.midiNote,
+        voice.midiNote
+      );
+      
+      // Apply retuning
+      voice.retune(newFreq, isSmooth ? 'smooth' : 'instant', glideTime);
+      voice.frequency = newFreq;
+      
+      // Update visualizer
+      if (this.visualizer) {
+        this.visualizer.updateNoteTuning(voice.midiNote, newFreq, isSmooth, glideTime);
+      }
+    });
+    
+    // Update all ratio displays in visualizer
+    if (this.visualizer) {
+      this.visualizer.updateAllRatiosForNewReference();
+    }
   }
 
   /**
